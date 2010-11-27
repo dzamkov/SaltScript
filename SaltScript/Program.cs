@@ -12,8 +12,12 @@ namespace SaltScript
         /// </summary>
         public static void Main(string[] args)
         {
+            Parser.Statement state;
+            int lastchar;
+            Parser.AcceptStatement("const lol = omg;", 0, out state, out lastchar);
+
             // Test
-            Parser.ParseResult<Parser.Expression> res = Parser.AcceptScope(@"
+            KeyValuePair<Parser.ScopeExpression, int>? res = Parser.AcceptScope(@"
                 int test = 2 + 4;
                 return test;
 ", 0);

@@ -10,151 +10,6 @@ namespace SaltScript
     /// </summary>
     public static class Parser
     {
-
-        /// <summary>
-        /// The result of a parse function applied to some text.
-        /// </summary>
-        public struct ParseResult<TData>
-        {
-            public ParseResult(IEnumerable<KeyValuePair<TData, int>> Interpretations)
-            {
-                this.Interpretations = new List<KeyValuePair<TData, int>>(Interpretations);
-            }
-
-            public ParseResult(List<KeyValuePair<TData, int>> Interpretations)
-            {
-                this.Interpretations = Interpretations;
-            }
-
-            /// <summary>
-            /// Creates a parse result with only one interpretation.
-            /// </summary>
-            public static ParseResult<TData> Singleton(TData Data, int LastChar)
-            {
-                List<KeyValuePair<TData, int>> ints = new List<KeyValuePair<TData, int>>();
-                ints.Add(new KeyValuePair<TData, int>(Data, LastChar));
-                return new ParseResult<TData>(ints);
-            }
-
-            /// <summary>
-            /// A parse result with no interpretations.
-            /// </summary>
-            public static readonly ParseResult<TData> Empty = new ParseResult<TData>(new List<KeyValuePair<TData, int>>());
-
-            /// <summary>
-            /// Wraps a nullable interpretation pair into a parse result which is either empty, or contains the interpretation.
-            /// </summary>
-            public static ParseResult<TData> Wrap(KeyValuePair<TData, int>? Interpretation)
-            {
-                if (Interpretation == null)
-                {
-                    return Empty;
-                }
-                else
-                {
-                    var li = new List<KeyValuePair<TData, int>>();
-                    li.Add(Interpretation.Value);
-                    return new ParseResult<TData>(li);
-                }
-            }
-
-            /// <summary>
-            /// The different interpretations the parser has of the string so far. Each interpretation is given
-            /// by the data it produces and the index of the character it ends on.
-            /// </summary>
-            public List<KeyValuePair<TData, int>> Interpretations;
-        }
-
-        /// <summary>
-        /// A function that parses text in a certain way to produce data.
-        /// </summary>
-        public delegate ParseResult<TData> ParseFunction<TData>(string Text, int Start);
-
-        /// <summary>
-        /// Applies a parse function to every result of another parse.
-        /// </summary>
-        public static ParseResult<TNData> Concat<TData, TNData>(string Text, ParseResult<TData> Result, Func<TData, ParseFunction<TNData>> Function)
-        {
-            List<KeyValuePair<TNData, int>> ints = new List<KeyValuePair<TNData, int>>();
-            foreach (var i in Result.Interpretations)
-            {
-                ints.AddRange(Function(i.Key)(Text, i.Value).Interpretations);
-            }
-            return new ParseResult<TNData>(ints);
-        }
-
-        /// <summary>
-        /// Creates a function that accepts multiple "Atoms" as possible.
-        /// </summary>
-        /// <param name="Greedy">True to discard all interpretations that don't have as many atoms as possible in the string.</param>
-        /// <param name="Min">The minimum amount of atoms parsed.</param>
-        /// <param name="Max">The maximum amount of atmos parsed or -1 for no limit.</param>
-        public static ParseFunction<TNData> AcceptMultiple<TData, TNData>(
-            ParseFunction<TData> Atom, 
-            Func<IEnumerable<TData>, TNData> Compress, 
-            bool Greedy, int Min, int Max)
-        {
-            return delegate(string Text, int Start)
-            {
-                List<KeyValuePair<TNData, int>> res = new List<KeyValuePair<TNData,int>>();
-                List<_AcceptMostIntermediate<TData>> intermediates = new List<_AcceptMostIntermediate<TData>>();
-                intermediates.Add(new _AcceptMostIntermediate<TData>() { CurrentChain = new List<TData>(), LastChar = Start });
-                while (intermediates.Count > 0)
-                {
-                    List<_AcceptMostIntermediate<TData>> nintermediates = new List<_AcceptMostIntermediate<TData>>();
-                    foreach (_AcceptMostIntermediate<TData> intermediate in intermediates)
-                    {
-                        if (!Greedy && intermediate.CurrentChain.Count >= Min)
-                        {
-                            res.Add(new KeyValuePair<TNData, int>(Compress(intermediate.CurrentChain), intermediate.LastChar));
-                        }
-
-                        bool addednew = false;
-                        foreach (var ires in Atom(Text, intermediate.LastChar).Interpretations)
-                        {
-                            if (!addednew)
-                            {
-                                intermediate.CurrentChain.Add(ires.Key);
-                                nintermediates.Add(new _AcceptMostIntermediate<TData>()
-                                {
-                                    CurrentChain = intermediate.CurrentChain,
-                                    LastChar = ires.Value
-                                });
-                                addednew = true;
-                            }
-                            else
-                            {
-                                List<TData> chain = new List<TData>();
-                                chain.AddRange(intermediate.CurrentChain);
-                                chain.RemoveAt(chain.Count - 1);
-                                chain.Add(ires.Key);
-                                nintermediates.Add(new _AcceptMostIntermediate<TData>()
-                                {
-                                    CurrentChain = chain,
-                                    LastChar = ires.Value
-                                });
-                            }
-                        }
-                        if (!addednew && Greedy)
-                        {
-                            res.Add(new KeyValuePair<TNData, int>(Compress(intermediate.CurrentChain), intermediate.LastChar));
-                        }
-                    }
-                    intermediates = nintermediates;
-                }
-                return new ParseResult<TNData>(res);
-            };
-        }
-
-        /// <summary>
-        /// Intermediate result for AcceptMost.
-        /// </summary>
-        private struct _AcceptMostIntermediate<TData>
-        {
-            public List<TData> CurrentChain;
-            public int LastChar;
-        }
-
         /// <summary>
         /// Gets if the specified character is valid in a word (variable, constant).
         /// </summary>
@@ -200,17 +55,25 @@ namespace SaltScript
         }
 
         /// <summary>
-        /// Greedily parses a word.
+        /// Gets if the specified word is a valid variable name.
         /// </summary>
-        public static ParseResult<string> AcceptWord(string Text, int Start)
+        public static bool ValidVariable(string Word)
         {
-            return ParseResult<string>.Wrap(QuickAcceptWord(Text, Start));
+            if (Word == "const") return false;
+            if (Word == "function") return false;
+            if (Word == "var") return false;
+            if (Word == "if") return false;
+            if (Word == "else") return false;
+            if (Word == "while") return false;
+            if (Word == "for") return false;
+            if (Word == "return") return false;
+            return true;
         }
 
         /// <summary>
         /// Greedily parses a word, or returns null if there is no word at the specified position.
         /// </summary>
-        public static KeyValuePair<string, int>? QuickAcceptWord(string Text, int Start)
+        public static bool AcceptWord(string Text, int Start, out string Word, out int LastChar)
         {
             bool first = true;
             int c = Start;
@@ -222,29 +85,36 @@ namespace SaltScript
                     first = false;
                     if (ValidNumeral(ch) || !ValidWordChar(ch))
                     {
-                        return null;
+                        Word = null;
+                        LastChar = c;
+                        return false;
                     }
                 }
                 else
                 {
                     if (!ValidWordChar(ch))
                     {
-                        return new KeyValuePair<string, int>(Text.Substring(Start, c - Start - 1), c);
+                        Word = Text.Substring(Start, c - Start);
+                        LastChar = c;
+                        return true;
                     }
                 }
                 c++;
             }
-            return null;
+            Word = null;
+            LastChar = c;
+            return false;
         }
 
         /// <summary>
         /// Parses the specified target string in the text.
         /// </summary>
-        public static KeyValuePair<string, int>? QuickAcceptString(string Text, int Start, string Target)
+        public static bool AcceptString(string Text, int Start, string Target, out int LastChar)
         {
-            if (Text.Length - Start < Text.Length)
+            if (Text.Length - Start < Target.Length)
             {
-                return null;
+                LastChar = Start;
+                return false;
             }
             bool match = true;
             for (int c = 0; c < Target.Length; c++)
@@ -258,36 +128,122 @@ namespace SaltScript
             }
             if (match)
             {
-                return new KeyValuePair<string, int>(Target, Start);
+                LastChar = Start;
+                return true;
             }
             else
             {
-                return null;
+                LastChar = Start;
+                return false;
             }
+        }
+
+
+        /// <summary>
+        /// Parses whitespace. Returns the length of the parsed whitespace in characters.
+        /// </summary>
+        public static int AcceptWhitespace(string Text, int Start, out int LastChar)
+        {
+            int c = Start;
+            int nc = 0;
+            bool singlelinecomment = false;
+            bool multiplelinecomment = false;
+            while (c < Text.Length)
+            {
+                char ch = Text[c];
+                if (ch == ' ' || ch == '\t')
+                {
+                    c++;
+                    continue;
+                }
+                if (ch == '\n' || ch == '\r')
+                {
+                    singlelinecomment = false;
+                    c++;
+                    continue;
+                }
+                if (multiplelinecomment && AcceptString(Text, c, "*/", out nc))
+                {
+                    multiplelinecomment = false;
+                    c = nc;
+                    continue;
+                }
+                if (!singlelinecomment && !multiplelinecomment)
+                {
+                    if (AcceptString(Text, c, "//", out nc))
+                    {
+                        singlelinecomment = true;
+                        c = nc;
+                        continue;
+                    }
+                    if (AcceptString(Text, c, "/*", out nc))
+                    {
+                        multiplelinecomment = true;
+                        c = nc;
+                        continue;
+                    }
+                    LastChar = c;
+                    return LastChar - Start;
+                }
+            }
+            LastChar = c;
+            return LastChar - Start;
         }
 
         /// <summary>
         /// Parses an expression.
         /// </summary>
-        public static ParseResult<Expression> AcceptExpression(string Text, int Start)
-        {
-
-        }
-
-        /// <summary>
-        /// Parses a statement.
-        /// </summary>
-        public static ParseResult<Statement> AcceptStatement(string Text, int Start)
+        public static bool AcceptExpression(string Text, int Start, out Expression Expression, out int LastChar)
         {
             throw new NotImplementedException();
         }
 
         /// <summary>
+        /// Parses a statement.
+        /// </summary>
+        public static bool AcceptStatement(string Text, int Start, out Statement Statement, out int LastChar)
+        {
+            // Constant assignment
+            if (AcceptString(Text, Start, "const", out LastChar))
+            {
+                if (AcceptWhitespace(Text, LastChar, out LastChar) > 0)
+                {
+                    string varname;
+                    if (AcceptWord(Text, LastChar, out varname, out LastChar) && ValidVariable(varname))
+                    {
+                        if (AcceptWhitespace(Text, LastChar, out LastChar) > 0)
+                        {
+                            if (AcceptString(Text, LastChar, "=", out LastChar))
+                            {
+                                if (AcceptWhitespace(Text, LastChar, out LastChar) > 0)
+                                {
+                                    Expression value;
+                                    if (AcceptExpression(Text, LastChar, out value, out LastChar))
+                                    {
+                                        AcceptWhitespace(Text, LastChar, out LastChar);
+                                        if (AcceptString(Text, LastChar, ";", out LastChar))
+                                        {
+                                            Statement = new ConstantStatement(varname, value);
+                                            return true;
+                                        }
+                                    }
+                                }
+                            }
+                        }   
+                    }
+                }
+            }
+
+            Statement = null;
+            return false;
+        }
+
+        /// <summary>
         /// Parses a scope.
         /// </summary>
-        public static ParseResult<Expression> AcceptScope(string Text, int Start)
+        public static KeyValuePair<ScopeExpression, int>? AcceptScope(string Text, int Start)
         {
-            return AcceptMultiple<Statement, Expression>(AcceptStatement, statements => new ScopeExpression(statements), true, 1, -1)(Text, Start);
+            throw new NotImplementedException();
         }
 
         /// <summary>
@@ -344,6 +300,11 @@ namespace SaltScript
                 this.Statements = new List<Statement>(Statements);
             }
 
+            public ScopeExpression(List<Statement> Statements)
+            {
+                this.Statements = Statements;
+            }
+
             public List<Statement> Statements;
         }
 
@@ -358,7 +319,7 @@ namespace SaltScript
         /// <summary>
         /// A statement assigning a constant.
         /// </summary>
-        public class ConstantStatement
+        public class ConstantStatement : Statement
         {
             public ConstantStatement(string Constant, Expression Value)
             {
@@ -373,7 +334,7 @@ namespace SaltScript
         /// <summary>
         /// A statement defining a variable.
         /// </summary>
-        public class DefineStatement
+        public class DefineStatement : Statement
         {
             public DefineStatement(Expression Type, string Variable, Expression Value)
             {
@@ -390,7 +351,7 @@ namespace SaltScript
         /// <summary>
         /// A statement assigning a variable to an expression of its type.
         /// </summary>
-        public class AssignStatement
+        public class AssignStatement : Statement
         {
             public AssignStatement(string Variable, Expression Value)
             {
@@ -405,7 +366,7 @@ namespace SaltScript
         /// <summary>
         /// A statement giving a value from a scope.
         /// </summary>
-        public class ReturnStatement
+        public class ReturnStatement : Statement
         {
             public ReturnStatement(Expression Value)
             {
@@ -418,7 +379,7 @@ namespace SaltScript
         /// <summary>
         /// A statement made up from many substatements.
         /// </summary>
-        public class CompoundStatement
+        public class CompoundStatement : Statement
         {
             public CompoundStatement(IEnumerable<Statement> Statements)
             {
