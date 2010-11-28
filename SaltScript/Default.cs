@@ -78,6 +78,7 @@ namespace SaltScript
             public _Input()
             {
                 this.RootValues = new Dictionary<string, Datum>();
+                this.RootValues.Add("type", new Datum(Type.UniversalType, Type.UniversalType));
                 this.RootValues.Add("int", new Datum(Type.UniversalType, IntType));
                 this.RootValues.Add("+", new Datum(
                     new FunctionType(new Type[2] { IntType, IntType }, Expression.Constant(Type.UniversalType, IntType)),
