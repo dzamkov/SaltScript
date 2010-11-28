@@ -101,9 +101,9 @@ namespace SaltScript
                 }
                 c++;
             }
-            Word = null;
+            Word = Text.Substring(Start, c - Start);
             LastChar = c;
-            return false;
+            return true;
         }
 
         /// <summary>
@@ -298,6 +298,22 @@ namespace SaltScript
         /// </summary>
         public static bool AcceptTightExpression(string Text, int Start, out Expression Expression, out int LastChar)
         {
+            // Procedure
+            if (AcceptString(Text, Start, "{", out LastChar))
+            {
+                ProcedureExpression procedure;
+                AcceptWhitespace(Text, LastChar, out LastChar);
+                if (AcceptProcedure(Text, LastChar, out procedure, out LastChar))
+                {
+                    AcceptWhitespace(Text, LastChar, out LastChar);
+                    if (AcceptString(Text, LastChar, "}", out LastChar))
+                    {
+                        Expression = procedure;
+                        return true;
+                    }
+                }
+            }
+
             // Variable
             string varname;
             if (AcceptWord(Text, Start, out varname, out LastChar) && ValidVariable(varname))
@@ -381,7 +397,7 @@ namespace SaltScript
                         List<Expression> args = new List<Expression>();
                         args.Add(this.Left.Expression);
                         args.Add(this.Right.Expression);
-                        return new FunctionExpression(this.Operator.Name, args);
+                        return new FunctionCallExpression(new VariableExpression(this.Operator.Name), args);
                     }
                 }
             }
@@ -466,7 +482,7 @@ namespace SaltScript
 
             // Define
             Expression type;
-            if (AcceptExpression(Text, Start, out type, out LastChar))
+            if (AcceptTightExpression(Text, Start, out type, out LastChar))
             {
                 if (AcceptWhitespace(Text, LastChar, out LastChar) > 0)
                 {
@@ -519,9 +535,9 @@ namespace SaltScript
         }
 
         /// <summary>
-        /// Parses a scope.
+        /// Parses a procedure expression.
         /// </summary>
-        public static bool AcceptScope(string Text, int Start, out ScopeExpression Expression, out int LastChar)
+        public static bool AcceptProcedure(string Text, int Start, out ProcedureExpression Expression, out int LastChar)
         {
             List<Statement> statements = new List<Statement>();
             Statement statement;
@@ -539,7 +555,7 @@ namespace SaltScript
                     }
                     else
                     {
-                        Expression = new ScopeExpression(statements);
+                        Expression = new ProcedureExpression(statements);
                         return true;
                     }
                 }
@@ -576,42 +592,34 @@ namespace SaltScript
         /// An expression indicating a function call. A function can either be identified by a string (in the case
         /// of an operator, or an overload) or an expression (eg. when chaining together multiple functions).
         /// </summary>
-        public class FunctionExpression : Expression
+        public class FunctionCallExpression : Expression
         {
-            public FunctionExpression(Expression Function, IEnumerable<Expression> Arguments)
+            public FunctionCallExpression(Expression Function, IEnumerable<Expression> Arguments)
             {
                 this.Function = Function;
                 this.Arguments = new List<Expression>(Arguments);
             }
-
-            public FunctionExpression(string FunctionName, IEnumerable<Expression> Arguments)
+            public FunctionCallExpression(Expression Function, List<Expression> Arguments)
             {
-                this.FunctionName = FunctionName;
-                this.Arguments = new List<Expression>(Arguments);
-            }
-
-            public FunctionExpression(string FunctionName, List<Expression> Arguments)
-            {
-                this.FunctionName = FunctionName;
+                this.Function = Function;
                 this.Arguments = Arguments;
             }
 
             public Expression Function;
-            public string FunctionName;
             public List<Expression> Arguments;
         }
 
         /// <summary>
         /// An expression that acts as a function defined by a series of statements that must be performed to obtain the result.
         /// </summary>
-        public class ScopeExpression : Expression
+        public class ProcedureExpression : Expression
         {
-            public ScopeExpression(IEnumerable<Statement> Statements)
+            public ProcedureExpression(IEnumerable<Statement> Statements)
             {
                 this.Statements = new List<Statement>(Statements);
             }
 
-            public ScopeExpression(List<Statement> Statements)
+            public ProcedureExpression(List<Statement> Statements)
             {
                 this.Statements = Statements;
             }
