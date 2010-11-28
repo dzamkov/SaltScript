@@ -100,6 +100,11 @@ namespace SaltScript
             this.ReturnType = ReturnType;
         }
 
+        public override string Display(Value Value)
+        {
+            return "<function>";
+        }
+
         /// <summary>
         /// Gets the return type given the arguments to the function.
         /// </summary>

@@ -185,6 +185,7 @@ namespace SaltScript
                     LastChar = c;
                     return LastChar - Start;
                 }
+                c++;
             }
             LastChar = c;
             return LastChar - Start;
@@ -297,9 +298,9 @@ namespace SaltScript
         }
 
         /// <summary>
-        /// Parses an expression that can not be broken apart with an operator.
+        /// Parses a simple expression (no function calls on top-level expression.
         /// </summary>
-        public static bool AcceptTightExpression(string Text, int Start, out Expression Expression, out int LastChar)
+        public static bool AcceptAtom(string Text, int Start, out Expression Expression, out int LastChar)
         {
             // Procedure
             if (AcceptString(Text, Start, "{", out LastChar))
@@ -317,9 +318,28 @@ namespace SaltScript
                 }
             }
 
+            // Variable
+            Operator op;
+            string varname;
+            if (AcceptWord(Text, Start, out varname, out LastChar) && ValidVariable(varname) && !LookupOperator(varname, out op))
+            {
+                Expression = new VariableExpression(varname);
+                return true;
+            }
+
             // Parentheses
             if (AcceptString(Text, Start, "(", out LastChar))
             {
+                // Operator
+                if (AcceptWord(Text, LastChar, out varname, out LastChar) && LookupOperator(varname, out op))
+                {
+                    if (AcceptString(Text, LastChar, ")", out LastChar))
+                    {
+                        Expression = new VariableExpression(varname);
+                        return true;
+                    }
+                }
+
                 Expression exp;
                 AcceptWhitespace(Text, LastChar, out LastChar);
                 if (AcceptExpression(Text, LastChar, out exp, out LastChar))
@@ -333,14 +353,6 @@ namespace SaltScript
                 }
             }
 
-            // Variable
-            string varname;
-            if (AcceptWord(Text, Start, out varname, out LastChar) && ValidVariable(varname))
-            {
-                Expression = new VariableExpression(varname);
-                return true;
-            }
-
             // Integer literal
             long val;
             if (AcceptIntegerLiteral(Text, Start, out val, out LastChar))
@@ -349,6 +361,59 @@ namespace SaltScript
                 return true;
             }
 
+
+            Expression = null;
+            return false;
+        }
+
+        /// <summary>
+        /// Accepts a list of comma-delimited expressions.
+        /// </summary>
+        public static void AcceptExpressions(string Text, int Start, out List<Expression> Expressions, out int LastChar)
+        {
+            Expressions = new List<Expression>();
+            int nc = LastChar = Start;
+            while (true)
+            {
+                Expression exp;
+                if (AcceptExpression(Text, nc, out exp, out nc))
+                {
+                    LastChar = nc;
+                    Expressions.Add(exp);
+                    AcceptWhitespace(Text, nc, out nc);
+                    if (AcceptString(Text, nc, ",", out nc))
+                    {
+                        AcceptWhitespace(Text, nc, out nc);
+                        continue;
+                    }
+                }
+                break;
+            }
+        }
+
+        /// <summary>
+        /// Parses an expression that can not be broken apart with an operator.
+        /// </summary>
+        public static bool AcceptTightExpression(string Text, int Start, out Expression Expression, out int LastChar)
+        {
+            if (AcceptAtom(Text, Start, out Expression, out LastChar))
+            {
+                // Try to get a function
+                int nc = 0;
+                if (AcceptString(Text, LastChar, "(", out nc))
+                {
+                    List<Expression> exps;
+                    AcceptExpressions(Text, nc, out exps, out nc);
+                    if (AcceptString(Text, nc, ")", out nc))
+                    {
+                        LastChar = nc;
+                        Expression = new FunctionCallExpression(Expression, exps);
+                        return true;
+                    }
+                }
+
+                return true;
+            }
 
             Expression = null;
             return false;
