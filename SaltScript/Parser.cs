@@ -217,6 +217,9 @@ namespace SaltScript
         {
             _Operators = new Dictionary<string, KeyValuePair<int, bool>>();
             _Operators.Add("+", new KeyValuePair<int, bool>(0, true));
+            _Operators.Add("-", new KeyValuePair<int, bool>(0, true));
+            _Operators.Add("*", new KeyValuePair<int, bool>(1, true));
+            _Operators.Add("/", new KeyValuePair<int, bool>(1, true));
         }
 
         private static readonly Dictionary<string, KeyValuePair<int, bool>> _Operators;

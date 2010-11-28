@@ -80,9 +80,16 @@ namespace SaltScript
                 this.RootValues = new Dictionary<string, Datum>();
                 this.RootValues.Add("type", new Datum(Type.UniversalType, Type.UniversalType));
                 this.RootValues.Add("int", new Datum(Type.UniversalType, IntType));
-                this.RootValues.Add("+", new Datum(
-                    new FunctionType(new Type[2] { IntType, IntType }, Expression.Constant(Type.UniversalType, IntType)),
-                    FunctionValue.Create(x => MakeIntValue(GetIntValue(x[0]) + GetIntValue(x[1])))));
+                this._AddBinaryFunction("+", IntType, IntType, IntType, x => MakeIntValue(GetIntValue(x[0]) + GetIntValue(x[1])));
+                this._AddBinaryFunction("-", IntType, IntType, IntType, x => MakeIntValue(GetIntValue(x[0]) - GetIntValue(x[1])));
+                this._AddBinaryFunction("*", IntType, IntType, IntType, x => MakeIntValue(GetIntValue(x[0]) * GetIntValue(x[1])));
+            }
+
+            private void _AddBinaryFunction(string Name, Type TypeA, Type TypeB, Type ReturnType, FunctionHandler Handler)
+            {
+                this.RootValues.Add(Name, new Datum(
+                    new FunctionType(new Type[2] { TypeA, TypeB }, Expression.Constant(Type.UniversalType, ReturnType)),
+                    FunctionValue.Create(Handler)));
             }
 
             public override Type IntegerLiteralType
