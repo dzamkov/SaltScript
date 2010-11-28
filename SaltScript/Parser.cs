@@ -314,6 +314,22 @@ namespace SaltScript
                 }
             }
 
+            // Parentheses
+            if (AcceptString(Text, Start, "(", out LastChar))
+            {
+                Expression exp;
+                AcceptWhitespace(Text, LastChar, out LastChar);
+                if (AcceptExpression(Text, LastChar, out exp, out LastChar))
+                {
+                    AcceptWhitespace(Text, LastChar, out LastChar);
+                    if (AcceptString(Text, LastChar, ")", out LastChar))
+                    {
+                        Expression = exp;
+                        return true;
+                    }
+                }
+            }
+
             // Variable
             string varname;
             if (AcceptWord(Text, Start, out varname, out LastChar) && ValidVariable(varname))
