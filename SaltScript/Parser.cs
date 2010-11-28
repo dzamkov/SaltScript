@@ -191,11 +191,241 @@ namespace SaltScript
         }
 
         /// <summary>
+        /// Checks if the specified name corresponds to an operator, and returns it if so.
+        /// </summary>
+        public static bool LookupOperator(string Name, out Operator Operator)
+        {
+            KeyValuePair<int, bool> opinfo;
+            if (_Operators.TryGetValue(Name, out opinfo))
+            {
+                Operator = new Operator()
+                {
+                    Name = Name,
+                    Precedence = opinfo.Key,
+                    LeftAssociative = opinfo.Value
+                };
+                return true;
+            }
+            else
+            {
+                Operator = new Operator();
+                return false;
+            }
+        }
+
+        static Parser()
+        {
+            _Operators = new Dictionary<string, KeyValuePair<int, bool>>();
+            _Operators.Add("+", new KeyValuePair<int, bool>(0, true));
+        }
+
+        private static readonly Dictionary<string, KeyValuePair<int, bool>> _Operators;
+
+        /// <summary>
+        /// Information about an operator.
+        /// </summary>
+        public struct Operator
+        {
+            /// <summary>
+            /// The name of the operator (how it appears).
+            /// </summary>
+            public string Name;
+
+            /// <summary>
+            /// How strongly the operator is bound. Higher numbers indicate stronger binding.
+            /// </summary>
+            public int Precedence;
+
+            /// <summary>
+            /// True if the operator is left associative. If two operators have the same precedence and are
+            /// left associative, the first one binds stronger.
+            /// </summary>
+            public bool LeftAssociative;
+        }
+
+        /// <summary>
+        /// Parses an operator.
+        /// </summary>
+        public static bool AcceptOperator(string Text, int Start, out Operator Operator, out int LastChar)
+        {
+            string name;
+            if (AcceptWord(Text, Start, out name, out LastChar))
+            {
+                if (LookupOperator(name, out Operator))
+                {
+                    return true;
+                }
+            }
+
+            Operator = new Operator();
+            return false;
+        }
+
+        /// <summary>
+        /// Parses an integer literal.
+        /// </summary>
+        public static bool AcceptIntegerLiteral(string Text, int Start, out long Value, out int LastChar)
+        {
+            List<char> numchars = new List<char>();
+            LastChar = Start;
+            while (LastChar < Text.Length)
+            {
+                char ch = Text[LastChar];
+                if (ValidNumeral(ch))
+                {
+                    numchars.Add(ch);
+                    LastChar++;
+                }
+                else
+                {
+                    break;
+                }
+            }
+            if (numchars.Count > 0)
+            {
+                Value = long.Parse(new string(numchars.ToArray()), System.Globalization.CultureInfo.InvariantCulture);
+                return true;
+            }
+            else
+            {
+                Value = 0;
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Parses an expression that can not be broken apart with an operator.
+        /// </summary>
+        public static bool AcceptTightExpression(string Text, int Start, out Expression Expression, out int LastChar)
+        {
+            // Variable
+            string varname;
+            if (AcceptWord(Text, Start, out varname, out LastChar) && ValidVariable(varname))
+            {
+                Expression = new VariableExpression(varname);
+                return true;
+            }
+
+            // Integer literal
+            long val;
+            if (AcceptIntegerLiteral(Text, Start, out val, out LastChar))
+            {
+                Expression = new IntegerLiteralExpression(val);
+                return true;
+            }
+
+
+            Expression = null;
+            return false;
+        }
+
+        /// <summary>
+        /// A tree, of operators and expressions.
+        /// </summary>
+        private class _OperatorTree
+        {
+            public _OperatorTree Left;
+            public Operator Operator;
+            public _OperatorTree Right;
+            public Expression Value;
+
+            /// <summary>
+            /// Adds an expression to the right of this tree.
+            /// </summary>
+            public _OperatorTree AddRight(Operator Operator, Expression Expression)
+            {
+                if (this.Value != null)
+                {
+                    return new _OperatorTree()
+                    {
+                        Left = this,
+                        Operator = Operator,
+                        Right = new _OperatorTree() { Value = Expression }
+                    };
+                }
+                if (Operator.Precedence > this.Operator.Precedence || (Operator.Precedence == this.Operator.Precedence && !Operator.LeftAssociative))
+                {
+                    // Split
+                    return new _OperatorTree()
+                    {
+                        Left = this.Left,
+                        Operator = this.Operator,
+                        Right = this.Right.AddRight(Operator, Expression)
+                    };
+                }
+                else
+                {
+                    // Loose bind
+                    return new _OperatorTree()
+                    {
+                        Left = this,
+                        Operator = Operator,
+                        Right = new _OperatorTree() { Value = Expression }
+                    };
+                }
+            }
+
+            /// <summary>
+            /// Gets the expression for this operator tree.
+            /// </summary>
+            public Expression Expression
+            {
+                get
+                {
+                    if (this.Value != null)
+                    {
+                        return this.Value;
+                    }
+                    else
+                    {
+                        List<Expression> args = new List<Expression>();
+                        args.Add(this.Left.Expression);
+                        args.Add(this.Right.Expression);
+                        return new FunctionExpression(this.Operator.Name, args);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
         /// Parses an expression.
         /// </summary>
         public static bool AcceptExpression(string Text, int Start, out Expression Expression, out int LastChar)
         {
-            throw new NotImplementedException();
+            _OperatorTree curtree;
+            if (AcceptTightExpression(Text, Start, out Expression, out LastChar))
+            {
+                curtree = new _OperatorTree() { Value = Expression };
+                while (true)
+                {
+                    int nc;
+                    if (AcceptWhitespace(Text, LastChar, out nc) > 0)
+                    {
+                        Operator op;
+                        if (AcceptOperator(Text, nc, out op, out nc))
+                        {
+                            if (AcceptWhitespace(Text, nc, out nc) > 0)
+                            {
+                                if (AcceptTightExpression(Text, nc, out Expression, out nc))
+                                {
+                                    LastChar = nc;
+                                    curtree = curtree.AddRight(op, Expression);
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+
+                    break;
+                }
+
+                Expression = curtree.Expression;
+                return true;
+            }
+            else
+            {
+                return false;
+            }
         }
 
         /// <summary>
@@ -234,6 +464,56 @@ namespace SaltScript
                 }
             }
 
+            // Define
+            Expression type;
+            if (AcceptExpression(Text, Start, out type, out LastChar))
+            {
+                if (AcceptWhitespace(Text, LastChar, out LastChar) > 0)
+                {
+                    string varname;
+                    if (AcceptWord(Text, LastChar, out varname, out LastChar) && ValidVariable(varname))
+                    {
+                        if (AcceptWhitespace(Text, LastChar, out LastChar) > 0)
+                        {
+                            if (AcceptString(Text, LastChar, "=", out LastChar))
+                            {
+                                if (AcceptWhitespace(Text, LastChar, out LastChar) > 0)
+                                {
+                                    Expression value;
+                                    if (AcceptExpression(Text, LastChar, out value, out LastChar))
+                                    {
+                                        AcceptWhitespace(Text, LastChar, out LastChar);
+                                        if (AcceptString(Text, LastChar, ";", out LastChar))
+                                        {
+                                            Statement = new DefineStatement(type, varname, value);
+                                            return true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Return
+            if (AcceptString(Text, Start, "return", out LastChar))
+            {
+                if (AcceptWhitespace(Text, LastChar, out LastChar) > 0)
+                {
+                    Expression returnvalue;
+                    if (AcceptExpression(Text, LastChar, out returnvalue, out LastChar))
+                    {
+                        AcceptWhitespace(Text, LastChar, out LastChar);
+                        if (AcceptString(Text, LastChar, ";", out LastChar))
+                        {
+                            Statement = new ReturnStatement(returnvalue);
+                            return true;
+                        }
+                    }
+                }
+            }
+
             Statement = null;
             return false;
         }
@@ -241,9 +521,34 @@ namespace SaltScript
         /// <summary>
         /// Parses a scope.
         /// </summary>
-        public static KeyValuePair<ScopeExpression, int>? AcceptScope(string Text, int Start)
+        public static bool AcceptScope(string Text, int Start, out ScopeExpression Expression, out int LastChar)
         {
-            throw new NotImplementedException();
+            List<Statement> statements = new List<Statement>();
+            Statement statement;
+            if (AcceptStatement(Text, Start, out statement, out LastChar))
+            {
+                statements.Add(statement);
+                while (true)
+                {
+                    int nc;
+                    AcceptWhitespace(Text, LastChar, out nc);
+                    if (AcceptStatement(Text, nc, out statement, out nc))
+                    {
+                        LastChar = nc;
+                        statements.Add(statement);
+                    }
+                    else
+                    {
+                        Expression = new ScopeExpression(statements);
+                        return true;
+                    }
+                }
+            }
+            else
+            {
+                Expression = null;
+                return false;
+            }
         }
 
         /// <summary>
@@ -285,6 +590,12 @@ namespace SaltScript
                 this.Arguments = new List<Expression>(Arguments);
             }
 
+            public FunctionExpression(string FunctionName, List<Expression> Arguments)
+            {
+                this.FunctionName = FunctionName;
+                this.Arguments = Arguments;
+            }
+
             public Expression Function;
             public string FunctionName;
             public List<Expression> Arguments;
@@ -306,6 +617,19 @@ namespace SaltScript
             }
 
             public List<Statement> Statements;
+        }
+
+        /// <summary>
+        /// An expression that stands for an integer.
+        /// </summary>
+        public class IntegerLiteralExpression : Expression
+        {
+            public IntegerLiteralExpression(long Value)
+            {
+                this.Value = Value;
+            }
+
+            public long Value;
         }
 
         /// <summary>
