@@ -106,16 +106,22 @@ namespace SaltScript
         }
 
         /// <summary>
-        /// Gets the return type given the arguments to the function.
+        /// Gets the return type for this function, given the current stack and the expressions defining the arguments.
         /// </summary>
-        public Type GetReturnType(Value[] Arguments)
+        public Type GetReturnType(VariableStack<Expression> Stack, Expression[] Arguments)
         {
-            List<Datum> stack = new List<Datum>(Arguments.Length);
-            for (int t = 0; t < Arguments.Length; t++)
+            ValueExpression ve = this.ReturnType as ValueExpression;
+            if (ve != null)
             {
-                stack.Add(new Datum(this.Arguments[t], Arguments[t]));
+                // Most common way
+                return ve.Value as Type;
             }
-            return this.ReturnType.Evaluate(stack).Value as Type;
+            else
+            {
+                // Naive always-works way
+                VariableStack<Expression> nstack = Stack.Append(Arguments);
+                return this.ReturnType.Substitute(nstack).Value as Type;
+            }
         }
 
         /// <summary>
@@ -124,7 +130,7 @@ namespace SaltScript
         public Type[] Arguments;
 
         /// <summary>
-        /// An expression that when evaluated, with the argument values, will get the return type.
+        /// An expression that when evaluated (with the argument values at the topmost parts of the stack), will get the return type.
         /// </summary>
         public Expression ReturnType;
     }
@@ -231,6 +237,69 @@ namespace SaltScript
     }
 
     /// <summary>
+    /// Maps numerically indexed variables to values.
+    /// </summary>
+    public class VariableStack<TValue>
+    {
+        public VariableStack()
+        {
+
+        }
+
+        public VariableStack(TValue[] Values)
+        {
+            this.Values = Values;
+        }
+
+        /// <summary>
+        /// Appends values to the stack and returns the new stack.
+        /// </summary>
+        public VariableStack<TValue> Append(TValue[] Values)
+        {
+            return new VariableStack<TValue>()
+            {
+                FunctionalDepth = this.FunctionalDepth,
+                Lower =  this,
+                StartIndex = this.StartIndex + this.Values.Length,
+                Values = Values
+            };
+        }
+
+        /// <summary>
+        /// Gets the value for the variable with the specified start index and functional depth.
+        /// </summary>
+        public TValue Lookup(int FunctionalDepth, int Index)
+        {
+            VariableStack<TValue> curstack = this;
+            while (curstack.FunctionalDepth > FunctionalDepth || curstack.StartIndex > Index)
+            {
+                curstack = curstack.Lower;
+            }
+            return curstack.Values[Index - curstack.StartIndex];
+        }
+
+        /// <summary>
+        /// Gets the lower levels of the stack.
+        /// </summary>
+        public VariableStack<TValue> Lower;
+
+        /// <summary>
+        /// The functional depth this part of the stack is on.
+        /// </summary>
+        public int FunctionalDepth;
+
+        /// <summary>
+        /// The index of the first value recorded in this part of the stack.
+        /// </summary>
+        public int StartIndex;
+
+        /// <summary>
+        /// Values for variables on this portion of the stack.
+        /// </summary>
+        public TValue[] Values;
+    }
+
+    /// <summary>
     /// Represents an expression, which can be evaluated if all scope variables are known.
     /// </summary>
     public abstract class Expression
@@ -238,7 +307,49 @@ namespace SaltScript
         /// <summary>
         /// Evaluates the expression with the given immediate value stack.
         /// </summary>
-        public abstract Datum Evaluate(List<Datum> Stack);
+        public abstract Value Evaluate(VariableStack<Value> Stack);
+
+        /// <summary>
+        /// Gets the type of this expression, given the expressions that define the variables in this expression.
+        /// </summary>
+        public abstract Type GetType(VariableStack<Expression> Stack);
+
+        /// <summary>
+        /// Substitutes every variable in the expression with its corresponding expression on the stack.
+        /// </summary>
+        public abstract Expression Substitute(VariableStack<Expression> Stack);
+
+        /// <summary>
+        /// Creates a type-safe version of the expression by using conversions where necessary. An exception will
+        /// be thrown if this is not possible.
+        /// </summary>
+        public virtual Expression TypeCheck(VariableStack<Expression> Stack)
+        {
+            return this;
+        }
+
+        /// <summary>
+        /// Gets the value of the expression if there are no variables dependant on an immediate stack.
+        /// </summary>
+        public Value Value
+        {
+            get
+            {
+                return this.Evaluate(null);
+            }
+        }
+
+        /// <summary>
+        /// Gets the type of the expression if one can be found without given the definitions of variables dependant on the
+        /// immediate stack.
+        /// </summary>
+        public Type Type
+        {
+            get
+            {
+                return this.GetType(null);
+            }
+        }
 
         /// <summary>
         /// Creates an expression that always evaluates to the same value.
@@ -264,9 +375,19 @@ namespace SaltScript
             this.Datum = Datum;
         }
 
-        public override Datum Evaluate(List<Datum> Stack)
+        public override Value Evaluate(VariableStack<Value> Stack)
         {
-            return this.Datum;
+            return this.Datum.Value;
+        }
+
+        public override Type GetType(VariableStack<Expression> Stack)
+        {
+            return this.Datum.Type;
+        }
+
+        public override Expression Substitute(VariableStack<Expression> Stack)
+        {
+            return this;
         }
 
         /// <summary>
@@ -282,25 +403,34 @@ namespace SaltScript
     {
         public VariableExpression(int StackPosition, int FunctionalDepth)
         {
-            this.StackPosition = StackPosition;
+            this.StackIndex = StackPosition;
             this.FunctionalDepth = FunctionalDepth;
         }
 
-        public override Datum Evaluate(List<Datum> Stack)
+        public override Value Evaluate(VariableStack<Value> Stack)
         {
-            return Stack[this.StackPosition];
+            return Stack.Lookup(this.FunctionalDepth, this.StackIndex);
+        }
+
+        public override Type GetType(VariableStack<Expression> Stack)
+        {
+            return Stack.Lookup(this.FunctionalDepth, this.StackIndex).Type;
+        }
+
+        public override Expression Substitute(VariableStack<Expression> Stack)
+        {
+            return Stack.Lookup(this.FunctionalDepth, this.StackIndex);
         }
 
         /// <summary>
         /// Relative position of the variable on the stack of the function that defines it.
         /// </summary>
-        public int StackPosition;
+        public int StackIndex;
 
         /// <summary>
         /// The amount of functional scopes in this variable is defined. 0 Indicates that this variable is used in the same function
         /// it is defined in. 1 Indicates that the variable is used in a closure of the function that defines it. And so on...
         /// </summary>
-        /// <remarks>Variables can only be retreived from the stack if their functional depth is 0.</remarks>
         public int FunctionalDepth;
     }
 
@@ -315,45 +445,31 @@ namespace SaltScript
             this.Arguments = Arguments;
         }
 
-        public override Datum Evaluate(List<Datum> Stack)
+        public override Value Evaluate(VariableStack<Value> Stack)
         {
-            Datum func = this.Function.Evaluate(Stack);
-            Datum[] args = new Datum[this.Arguments.Length];
-            for (int t = 0; t < this.Arguments.Length; t++)
+            Value func = this.Function.Evaluate(Stack);
+            Value[] args = new Value[this.Arguments.Length];
+            for (int t = 0; t < args.Length; t++)
             {
                 args[t] = this.Arguments[t].Evaluate(Stack);
             }
+            return (func as FunctionValue).Call(args);
+        }
 
-            // Type safety check and call
-            FunctionType functype = func.Type as FunctionType;
-            if (functype != null)
+        public override Type GetType(VariableStack<Expression> Stack)
+        {
+            FunctionType functype = this.Function.GetType(Stack) as FunctionType;
+            return functype.GetReturnType(Stack, this.Arguments);
+        }
+
+        public override Expression Substitute(VariableStack<Expression> Stack)
+        {
+            Expression[] nargs = new Expression[this.Arguments.Length];
+            for(int t = 0; t < nargs.Length; t++)
             {
-                if (args.Length == functype.Arguments.Length)
-                {
-                    bool fail = false;
-                    Value[] vals = new Value[args.Length];
-                    for (int t = 0; t < args.Length; t++)
-                    {
-                        Value val;
-                        if (functype.Arguments[t].Convert(args[t], out val))
-                        {
-                            vals[t] = val;
-                        }
-                        else
-                        {
-                            fail = true;
-                            break;
-                        }
-                    }
-
-                    if (!fail)
-                    {
-                        return new Datum(functype.GetReturnType(vals), (func.Value as FunctionValue).Call(vals));
-                    }
-                }
+                nargs[t] = this.Arguments[t].Substitute(Stack);
             }
-
-            throw new NotImplementedException();
+            return new FunctionCallExpression(this.Function.Substitute(Stack), nargs);
         }
 
         /// <summary>
@@ -407,21 +523,27 @@ namespace SaltScript
         public static Datum Evaluate(Parser.Expression Expression, InterpreterInput Input)
         {
             // Assign all input variables to a position on the stack of the root scope. (Seperates names and values)
-            Dictionary<string, int> vars = new Dictionary<string, int>();
-            List<Datum> stack = new List<Datum>();
+            int rootvars = Input.RootValues.Count;
+            Dictionary<string, int> vars = new Dictionary<string, int>(rootvars);
+            Value[] data = new Value[rootvars];
+            Expression[] exps = new Expression[rootvars];
             int i = 0;
             foreach (var kvp in Input.RootValues)
             {
+                data[i] = kvp.Value.Value;
+                exps[i] = new ValueExpression(kvp.Value);
                 vars[kvp.Key] = i;
-                stack.Add(kvp.Value);
                 i++;
             }
+            var datastack = new VariableStack<Value>(data);
+            var expstack = new VariableStack<Expression>(exps);
 
             // Prepare
             Expression exp = Prepare(Expression, new Scope() { FunctionalDepth = 0, Variables = vars }, Input);
+            Type exptype = exp.GetType(expstack);
 
             // Evaluate
-            return exp.Evaluate(stack);
+            return new Datum(exptype, exp.TypeCheck(expstack).Evaluate(datastack));
         }
 
         /// <summary>
