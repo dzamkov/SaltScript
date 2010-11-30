@@ -9,7 +9,13 @@ namespace SaltScript
     /// </summary>
     public class Value
     {
-
+        /// <summary>
+        /// Gets a "friendly" representation of the value when interpreted as the specified type.
+        /// </summary>
+        public virtual string Display(Type Type)
+        {
+            return "<unknown>";
+        }
     }
 
     /// <summary>
@@ -18,39 +24,11 @@ namespace SaltScript
     public class Type : Value
     {
         /// <summary>
-        /// The friendly (ish) name for this type.
+        /// Gets if the two specified types are the same.
         /// </summary>
-        public virtual string Name
+        public static bool Equal(Type A, Type B)
         {
-            get
-            {
-                return this.ToString();
-            }
-        }
-
-        /// <summary>
-        /// Gets a friendly (ish) string form of a value of this type.
-        /// </summary>
-        public virtual string Display(Value Value)
-        {
-            return Value.ToString();
-        }
-
-        /// <summary>
-        /// Converts a datum to a value of this type.
-        /// </summary>
-        public virtual bool Convert(Datum Datum, out Value Value)
-        {
-            if (Datum.Type == this)
-            {
-                Value = Datum.Value;
-                return true;
-            }
-            else
-            {
-                Value = null;
-                return false;
-            }
+            return A == B;
         }
 
         /// <summary>
@@ -60,33 +38,157 @@ namespace SaltScript
 
         private class _TypeType : Type
         {
-            public override string Name
+            public override string Display(Type Type)
             {
-                get
-                {
-                    return "type";
-                }
-            }
-
-            public override string Display(Value Value)
-            {
-                return (Value as Type).Name;
-            }
-
-            public override bool Convert(Datum Datum, out Value Value)
-            {
-                if (Datum.Value is Type)
-                {
-                    Value = Datum.Value;
-                    return true;
-                }
-                else
-                {
-                    Value = null;
-                    return false;
-                }
+                return "type";
             }
         }
+    }
+
+    /// <summary>
+    /// The type for a variant whose values can have one of many forms (a generalization of enumerated types).
+    /// </summary>
+    public class VariantType : Type
+    {
+        public VariantType(IEnumerable<VariantForm> Forms) : this(new List<VariantForm>(Forms))
+        {
+            
+        }
+
+        public VariantType(List<VariantForm> Forms)
+        {
+            this.FormsByName = new Dictionary<string, int>();
+            this.Forms = Forms;
+            int i = 0;
+            foreach (VariantForm vf in this.Forms)
+            {
+                this.FormsByName.Add(vf.Name, i);
+                i++;
+            }
+        }
+
+        public VariantType()
+        {
+
+        }
+
+        /// <summary>
+        /// Gets a variant form description by its name.
+        /// </summary>
+        public bool Lookup(string FormName, out VariantForm Form, out int Index)
+        {
+            if (this.FormsByName.TryGetValue(FormName, out Index))
+            {
+                Form = this.Forms[Index];
+                return true;
+            }
+            else
+            {
+                Form = new VariantForm();
+                return false;
+            }
+        }
+
+        public override string Display(Type Type)
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.Append("variant { ");
+            bool comma = false;
+            foreach (VariantForm vf in this.Forms)
+            {
+                if (comma)
+                {
+                    sb.Append(", ");
+                }
+                sb.Append(vf.Name);
+                if (vf.DataTypes != null && vf.DataTypes.Length > 0)
+                {
+                    sb.Append("(");
+                    bool incomma = false;
+                    foreach (Type ty in vf.DataTypes)
+                    {
+                        if (incomma)
+                        {
+                            sb.Append(", ");
+                        }
+                        sb.Append(ty.Display(Type.UniversalType));
+                        incomma = true;
+                    }
+                    sb.Append(")");
+                }
+                comma = true;
+            }
+            sb.Append(" }");
+            return sb.ToString();
+        }
+
+        public Dictionary<string, int> FormsByName;
+        public List<VariantForm> Forms;
+    }
+
+    /// <summary>
+    /// A possible form of a variant type.
+    /// </summary>
+    public struct VariantForm
+    {
+        public VariantForm(string Name, Type[] DataTypes)
+        {
+            this.Name = Name;
+            this.DataTypes = DataTypes;
+        }
+
+        /// <summary>
+        /// The name of this form.
+        /// </summary>
+        public string Name;
+
+        /// <summary>
+        /// The types of the data associated with this form.
+        /// </summary>
+        public Type[] DataTypes;
+    }
+
+    /// <summary>
+    /// A value of a variant type.
+    /// </summary>
+    public class VariantValue : Value
+    {
+        public VariantValue(int FormIndex, Value[] Data)
+        {
+            this.FormIndex = FormIndex;
+            this.Data = Data;
+        }
+
+        public override string Display(Type Type)
+        {
+            VariantForm vf = (Type as VariantType).Forms[this.FormIndex];
+            StringBuilder sb = new StringBuilder();
+            sb.Append(vf.Name);
+            if (this.Data != null && this.Data.Length > 0)
+            {
+                sb.Append("(");
+                for (int t = 0; t < this.Data.Length; t++)
+                {
+                    if (t > 0)
+                    {
+                        sb.Append(", ");
+                    }
+                    sb.Append(this.Data[t].Display(vf.DataTypes[t]));
+                }
+                sb.Append(")");
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// The index of the form of this value.
+        /// </summary>
+        public int FormIndex;
+
+        /// <summary>
+        /// The data associated with this value, or null if the form does not require any additional data.
+        /// </summary>
+        public Value[] Data;
     }
 
     /// <summary>
@@ -100,9 +202,10 @@ namespace SaltScript
             this.ReturnType = ReturnType;
         }
 
-        public override string Display(Value Value)
+        public override string Display(Type Type)
         {
-            return "<function>";
+            // not much we can do here...
+            return "<functiontype>";
         }
 
         /// <summary>
@@ -140,8 +243,14 @@ namespace SaltScript
     /// </summary>
     public abstract class FunctionValue : Value
     {
+        public override string Display(Type Type)
+        {
+            return "<function>";
+        }
+
         /// <summary>
-        /// Calls the function with the specified arguments. Type checking must be performed before calling.
+        /// Calls the function with the specified arguments. Type checking must be performed before calling. Arguments may not be changed
+        /// after this call.
         /// </summary>
         public abstract Value Call(Value[] Arguments);
 
@@ -164,6 +273,32 @@ namespace SaltScript
     }
 
     /// <summary>
+    /// A function value for a constructor that makes a variant.
+    /// </summary>
+    public class VariantConstructor : FunctionValue
+    {
+        public VariantConstructor(int FormIndex)
+        {
+            this.FormIndex = FormIndex;
+        }
+
+        public override string Display(Type Type)
+        {
+            return "<variant constructor>";
+        }
+
+        public override Value Call(Value[] Arguments)
+        {
+            return new VariantValue(this.FormIndex, Arguments);
+        }
+
+        /// <summary>
+        /// The index of the form that is constructed.
+        /// </summary>
+        public int FormIndex;
+    }
+
+    /// <summary>
     /// The delegate type for .net functions that can act as SaltScript functions.
     /// </summary>
     public delegate Value FunctionHandler(Value[] Arguments);
@@ -177,6 +312,17 @@ namespace SaltScript
         {
             this.Type = Type;
             this.Value = Value;
+        }
+
+        /// <summary>
+        /// Gets a "friendly" string form of this datum.
+        /// </summary>
+        public string Display
+        {
+            get
+            {
+                return this.Value.Display(this.Type);
+            }
         }
 
         /// <summary>
@@ -321,11 +467,19 @@ namespace SaltScript
 
         /// <summary>
         /// Creates a type-safe version of the expression by using conversions where necessary. An exception will
-        /// be thrown if this is not possible.
+        /// be thrown if this is not possible. Additionally the type of the expression will be returned. Both conversions are of type
+        /// &lt;type a, type b&gt;maybe(&lt;a&gt;b)
         /// </summary>
-        public virtual Expression TypeCheck(VariableStack<Expression> Stack)
+        /// <remarks>Type checking should always be performed before any other operation on the expression, as only the results
+        /// given from type checking can be guaranteed to be accurate (along with all operations on the type safe expression). </remarks>
+        public virtual void TypeCheck(
+            VariableStack<Expression> Stack, 
+            Expression ImplicitConversion,
+            Expression ExplicitConversion,
+            out Expression TypeSafeExpression, out Type Type)
         {
-            return this;
+            TypeSafeExpression = this;
+            Type = this.GetType(Stack);
         }
 
         /// <summary>
@@ -472,6 +626,50 @@ namespace SaltScript
             return new FunctionCallExpression(this.Function.Substitute(Stack), nargs);
         }
 
+        public override void TypeCheck(VariableStack<Expression> Stack, 
+            Expression ImplicitConversion,
+            Expression ExplicitConversion,
+            out Expression TypeSafeExpression, out Type Type)
+        {
+            Expression sfunction;
+            Type possiblefunctiontype;
+            this.Function.TypeCheck(Stack, ImplicitConversion, ExplicitConversion, out sfunction, out possiblefunctiontype);
+            
+            FunctionType functiontype = possiblefunctiontype as FunctionType;
+            if(functiontype == null)
+            {
+                throw new NotCallableException(this);
+            }
+
+            Expression[] sargs = new Expression[this.Arguments.Length];
+            Type[] argtypes = new Type[this.Arguments.Length];
+            for (int t = 0; t < this.Arguments.Length; t++)
+            {
+                this.Arguments[t].TypeCheck(Stack, ImplicitConversion, ExplicitConversion, out sargs[t], out argtypes[t]);
+            }
+
+            // Check types
+            bool okay = true;
+            for (int t = 0; t < argtypes.Length; t++)
+            {
+                if (argtypes[t] != functiontype.Arguments[t])
+                {
+                    okay = false;
+                    break;
+                }
+            }
+            if (!okay)
+            {
+                throw new TypeCheckException(this);
+            }
+
+            // Get return type
+            Type = functiontype.GetReturnType(Stack, sargs);
+
+            // Get new function call
+            TypeSafeExpression = new FunctionCallExpression(sfunction, sargs);
+        }
+
         /// <summary>
         /// The function that is called.
         /// </summary>
@@ -481,6 +679,75 @@ namespace SaltScript
         /// Expressions for the arguments of the call.
         /// </summary>
         public Expression[] Arguments;
+    }
+
+    /// <summary>
+    /// An expression that represents a property of another expression. This expression can not be used directly for anything
+    /// other than typechecking. An accessor can be used to get an individual form constructor for a variant type, or to get a property from
+    /// a struct.
+    /// </summary>
+    public class AccessorExpression : Expression
+    {
+        public AccessorExpression(Expression Object, string Property)
+        {
+            this.Object = Object;
+            this.Property = Property;
+        }
+
+        public override Value Evaluate(VariableStack<Value> Stack)
+        {
+            throw new NotImplementedException();
+        }
+
+        public override Type GetType(VariableStack<Expression> Stack)
+        {
+            throw new NotImplementedException();
+        }
+
+        public override Expression Substitute(VariableStack<Expression> Stack)
+        {
+            return new AccessorExpression(this.Object.Substitute(Stack), this.Property);
+        }
+
+        public override void TypeCheck(VariableStack<Expression> Stack, 
+            Expression ImplicitConversion, 
+            Expression ExplicitConversion, 
+            out Expression TypeSafeExpression, out Type Type)
+        {
+            Expression sobject;
+            Type objecttype;
+            this.Object.TypeCheck(Stack, ImplicitConversion, ExplicitConversion, out sobject, out objecttype);
+
+            // Check if variant
+            if (objecttype == Type.UniversalType)
+            {
+                VariantType vt = sobject.Substitute(Stack).Value as VariantType;
+                if (vt != null)
+                {
+                    int index;
+                    VariantForm vf;
+                    if (vt.Lookup(this.Property, out vf, out index))
+                    {
+                        TypeSafeExpression = Expression.Constant(
+                            Type = new FunctionType(vf.DataTypes, Expression.Constant(Type.UniversalType, vt)),
+                            new VariantConstructor(index));
+                        return;
+                    }
+                }
+            }
+
+            throw new AccessorFailException(this);
+        }
+
+        /// <summary>
+        /// The object to "access".
+        /// </summary>
+        public Expression Object;
+
+        /// <summary>
+        /// The property to retreive from the object.
+        /// </summary>
+        public string Property;
     }
 
     /// <summary>
@@ -540,10 +807,11 @@ namespace SaltScript
 
             // Prepare
             Expression exp = Prepare(Expression, new Scope() { FunctionalDepth = 0, Variables = vars }, Input);
-            Type exptype = exp.GetType(expstack);
+            Type exptype;
+            exp.TypeCheck(expstack, null, null, out exp, out exptype);
 
             // Evaluate
-            return new Datum(exptype, exp.TypeCheck(expstack).Evaluate(datastack));
+            return new Datum(exptype, exp.Evaluate(datastack));
         }
 
         /// <summary>
@@ -579,7 +847,14 @@ namespace SaltScript
                 return new ValueExpression(Input.IntegerLiteralType, Input.GetIntegerLiteral(ile.Value));
             }
 
-            return null;
+            // Accessor
+            Parser.AccessorExpression ae = Expression as Parser.AccessorExpression;
+            if (ae != null)
+            {
+                return new AccessorExpression(Prepare(ae.Object, Scope, Input), ae.Property);
+            }
+
+            throw new NotImplementedException();
         }
 
         /// <summary>
@@ -611,6 +886,46 @@ namespace SaltScript
                 return Evaluate(exp);
             }
             throw new NotImplementedException();
+        }
+    }
+
+    /// <summary>
+    /// An exception indicating a type mismatch while type checking.
+    /// </summary>
+    public class TypeCheckException : Exception
+    {
+        public TypeCheckException(Expression Expression)
+        {
+            this.Expression = Expression;
+        }
+
+        /// <summary>
+        /// The expression where the type mismatch occured.
+        /// </summary>
+        public Expression Expression;
+    }
+
+    /// <summary>
+    /// An exception indicating that a type is not suitable for an accessor.
+    /// </summary>
+    public class AccessorFailException : TypeCheckException
+    {
+        public AccessorFailException(Expression Expression)
+            : base(Expression)
+        {
+            this.Expression = Expression;
+        }
+    }
+
+    /// <summary>
+    /// An exception indicating that an object used as a function in a function call expression cannot be called.
+    /// </summary>
+    public class NotCallableException : TypeCheckException
+    {
+        public NotCallableException(Expression Expression)
+            : base(Expression)
+        {
+            this.Expression = Expression;
         }
     }
 }

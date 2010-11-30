@@ -16,7 +16,7 @@ namespace SaltScript
                 Console.Write(">>> ");
                 string str = Console.ReadLine();
                 Datum val = Interpret.Evaluate(str);
-                Console.WriteLine(val.Type.Display(val.Value) + " : " + val.Type.Name);
+                Console.WriteLine(val.Display);
             }
         }
     }

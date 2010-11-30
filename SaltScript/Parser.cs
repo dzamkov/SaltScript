@@ -398,18 +398,34 @@ namespace SaltScript
         {
             if (AcceptAtom(Text, Start, out Expression, out LastChar))
             {
-                // Try to get a function
-                int nc = 0;
-                if (AcceptString(Text, LastChar, "(", out nc))
+                int nc = 0; 
+                while (true)
                 {
-                    List<Expression> exps;
-                    AcceptExpressions(Text, nc, out exps, out nc);
-                    if (AcceptString(Text, nc, ")", out nc))
+                    // Try to get a function
+                    if (AcceptString(Text, LastChar, "(", out nc))
                     {
-                        LastChar = nc;
-                        Expression = new FunctionCallExpression(Expression, exps);
-                        return true;
+                        List<Expression> exps;
+                        AcceptExpressions(Text, nc, out exps, out nc);
+                        if (AcceptString(Text, nc, ")", out nc))
+                        {
+                            LastChar = nc;
+                            Expression = new FunctionCallExpression(Expression, exps);
+                            continue;
+                        }
                     }
+
+                    // Try to get an accessor
+                    if (AcceptString(Text, LastChar, ".", out nc))
+                    {
+                        string accessname;
+                        if (AcceptWord(Text, nc, out accessname, out nc))
+                        {
+                            LastChar = nc;
+                            Expression = new AccessorExpression(Expression, accessname);
+                            continue;
+                        }
+                    }
+                    break;
                 }
 
                 return true;
@@ -722,6 +738,21 @@ namespace SaltScript
             }
 
             public long Value;
+        }
+
+        /// <summary>
+        /// An expression that gets a named property from an object.
+        /// </summary>
+        public class AccessorExpression : Expression
+        {
+            public AccessorExpression(Expression Object, string Property)
+            {
+                this.Object = Object;
+                this.Property = Property;
+            }
+
+            public Expression Object;
+            public string Property;
         }
 
         /// <summary>
