@@ -10,11 +10,76 @@ namespace SaltScript
     public class Value
     {
         /// <summary>
+        /// Gets if two values, if interpreted as the specified type, are the same.
+        /// </summary>
+        public static bool Equals(Type Type, Value A, Value B)
+        {
+            if (A == B)
+            {
+                return true;
+            }
+            if (A.Hash != B.Hash)
+            {
+                return false;
+            }
+            return A.Equals(Type, B);
+        }
+
+        /// <summary>
+        /// Gets if this value equals (can be replaced with anywhere in a script, without changing any results) another.
+        /// </summary>
+        public virtual bool Equals(Type Type, Value Other)
+        {
+            return false;
+        }
+
+        /// <summary>
+        /// Gets a hashcode such that two values with different hashcodes must be different.
+        /// </summary>
+        public virtual int Hash
+        {
+            get
+            {
+                return this.GetHashCode();
+            }
+        }
+
+        /// <summary>
         /// Gets a "friendly" representation of the value when interpreted as the specified type.
         /// </summary>
         public virtual string Display(Type Type)
         {
             return "<unknown>";
+        }
+
+        /// <summary>
+        /// A convenience function that gets a part of a tuple. This will not work on non-tuples. 
+        /// </summary>
+        public Value Get(int Index)
+        {
+            TupleValue tv = this as TupleValue;
+            if (tv != null)
+            {
+                return tv.Values[Index];
+            }
+            TupleType tt = this as TupleType;
+            if (tt != null)
+            {
+                return tt.Types[Index];
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// If this value is a type (and can be interpreted as a value of the type "type"), this returns a type
+        /// representation of it. Returns null otherwise.
+        /// </summary>
+        public virtual Type AsType
+        {
+            get
+            {
+                return null;
+            }
         }
     }
 
@@ -24,17 +89,17 @@ namespace SaltScript
     public class Type : Value
     {
         /// <summary>
-        /// Gets if the two specified types are the same.
-        /// </summary>
-        public static bool Equal(Type A, Type B)
-        {
-            return A == B;
-        }
-
-        /// <summary>
         /// All types are values with this type, including this type.
         /// </summary>
         public static readonly Type UniversalType = new _TypeType();
+
+        public override Type AsType
+        {
+            get
+            {
+                return this;
+            }
+        }
 
         private class _TypeType : Type
         {
@@ -101,19 +166,10 @@ namespace SaltScript
                     sb.Append(", ");
                 }
                 sb.Append(vf.Name);
-                if (vf.DataTypes != null && vf.DataTypes.Length > 0)
+                if (vf.DataType != null)
                 {
                     sb.Append("(");
-                    bool incomma = false;
-                    foreach (Type ty in vf.DataTypes)
-                    {
-                        if (incomma)
-                        {
-                            sb.Append(", ");
-                        }
-                        sb.Append(ty.Display(Type.UniversalType));
-                        incomma = true;
-                    }
+                    sb.Append(vf.DataType.Display(Type.UniversalType));
                     sb.Append(")");
                 }
                 comma = true;
@@ -131,10 +187,10 @@ namespace SaltScript
     /// </summary>
     public struct VariantForm
     {
-        public VariantForm(string Name, Type[] DataTypes)
+        public VariantForm(string Name, Type DataType)
         {
             this.Name = Name;
-            this.DataTypes = DataTypes;
+            this.DataType = DataType;
         }
 
         /// <summary>
@@ -143,9 +199,9 @@ namespace SaltScript
         public string Name;
 
         /// <summary>
-        /// The types of the data associated with this form.
+        /// The type of the data associated with this form.
         /// </summary>
-        public Type[] DataTypes;
+        public Type DataType;
     }
 
     /// <summary>
@@ -153,7 +209,7 @@ namespace SaltScript
     /// </summary>
     public class VariantValue : Value
     {
-        public VariantValue(int FormIndex, Value[] Data)
+        public VariantValue(int FormIndex, Value Data)
         {
             this.FormIndex = FormIndex;
             this.Data = Data;
@@ -164,19 +220,9 @@ namespace SaltScript
             VariantForm vf = (Type as VariantType).Forms[this.FormIndex];
             StringBuilder sb = new StringBuilder();
             sb.Append(vf.Name);
-            if (this.Data != null && this.Data.Length > 0)
-            {
-                sb.Append("(");
-                for (int t = 0; t < this.Data.Length; t++)
-                {
-                    if (t > 0)
-                    {
-                        sb.Append(", ");
-                    }
-                    sb.Append(this.Data[t].Display(vf.DataTypes[t]));
-                }
-                sb.Append(")");
-            }
+            sb.Append("(");
+            sb.Append(this.Data.Display(vf.DataType));
+            sb.Append(")");
             return sb.ToString();
         }
 
@@ -188,7 +234,7 @@ namespace SaltScript
         /// <summary>
         /// The data associated with this value, or null if the form does not require any additional data.
         /// </summary>
-        public Value[] Data;
+        public Value Data;
     }
 
     /// <summary>
@@ -196,9 +242,9 @@ namespace SaltScript
     /// </summary>
     public class FunctionType : Type
     {
-        public FunctionType(Type[] Arguments, Expression ReturnType)
+        public FunctionType(Type Argument, FunctionValue ReturnType)
         {
-            this.Arguments = Arguments;
+            this.Argument = Argument;
             this.ReturnType = ReturnType;
         }
 
@@ -209,33 +255,23 @@ namespace SaltScript
         }
 
         /// <summary>
-        /// Gets the return type for this function, given the current stack and the expressions defining the arguments.
+        /// Gets the return type for this function, given the current stack and an expression giving the arguments.
         /// </summary>
-        public Type GetReturnType(VariableStack<Expression> Stack, Expression[] Arguments)
+        public Type GetReturnType(VariableStack<Expression> Stack, Expression Argument)
         {
-            ValueExpression ve = this.ReturnType as ValueExpression;
-            if (ve != null)
-            {
-                // Most common way
-                return ve.Value as Type;
-            }
-            else
-            {
-                // Naive always-works way
-                VariableStack<Expression> nstack = Stack.Append(Arguments);
-                return this.ReturnType.Substitute(nstack).Value as Type;
-            }
+            return this.ReturnType.SubstituteCall(Argument.Substitute(Stack)).AsType;
         }
 
         /// <summary>
-        /// An array of indicating the types of the arguments for the function.
+        /// The argument to the function. Null or an empty tuple type can be used to indicate no arguments. A tuple type can be used
+        /// to indicate more than one argument.
         /// </summary>
-        public Type[] Arguments;
+        public Type Argument;
 
         /// <summary>
-        /// An expression that when evaluated (with the argument values at the topmost parts of the stack), will get the return type.
+        /// A function that when called with the value of the argument, will find the return type of this function.
         /// </summary>
-        public Expression ReturnType;
+        public FunctionValue ReturnType;
     }
 
     /// <summary>
@@ -250,26 +286,250 @@ namespace SaltScript
 
         /// <summary>
         /// Calls the function with the specified arguments. Type checking must be performed before calling. Arguments may not be changed
-        /// after this call.
+        /// after this call. An argument of null can be supplied if the function type does not require an argument.
         /// </summary>
-        public abstract Value Call(Value[] Arguments);
+        public abstract Value Call(Value Argument);
+
+        /// <summary>
+        /// Calls the function by providing an expression that yields the argument when evaluated. This can be used to avoid computation when it
+        /// isn't needed.
+        /// </summary>
+        public virtual Value SubstituteCall(Expression Argument)
+        {
+            return this.Call(Argument.Value);
+        }
+
+        /// <summary>
+        /// If this has the type &lt;x&gt;x, creates a value of type x, 
+        /// by calling the function with itself. the current function should not unconditionally require (invoke/use) its first
+        /// parameter as this may lead to a stack overflow or circular dependency (either while calling this fix function, or at runtime).
+        /// </summary>
+        /// <remarks>If you still don't understand http://en.wikipedia.org/wiki/Fixed_point_combinator </remarks>
+        public virtual Value Fix
+        {
+            get
+            {
+                // This way only works for functions...
+                return new FixFunction(this);
+            }
+        }
+
+        /// <summary>
+        /// Creates a constant function for the specified value.
+        /// </summary>
+        public static ConstantFunction Constant(Value Value)
+        {
+            return new ConstantFunction(Value);
+        }
+
+        /// <summary>
+        /// Gets the identity function value. The identity function will always return what it is called with.
+        /// </summary>
+        public static readonly FunctionValue Identity = new _IdentityFunction();
 
         /// <summary>
         /// Creates a function value from a native .net function.
         /// </summary>
         public static FunctionValue Create(FunctionHandler Function)
         {
-            return new _NativeFunctionValue() { Function = Function };
+            return new _NativeFunction() { Function = Function };
         }
 
-        private class _NativeFunctionValue : FunctionValue
+        private class _NativeFunction : FunctionValue
         {
-            public override Value Call(Value[] Arguments)
+            public override Value Call(Value Argument)
             {
-                return this.Function(Arguments);
+                return this.Function(Argument);
             }
             public FunctionHandler Function;
         }
+
+        private class _IdentityFunction : FunctionValue
+        {
+            public override Value Call(Value Argument)
+            {
+                return Argument;
+            }
+
+            public override Value SubstituteCall(Expression Argument)
+            {
+                return Argument.Value;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The value produced while performing the "Fix" operation on a function that itself returns a function.
+    /// </summary>
+    public class FixFunction : FunctionValue
+    {
+        public FixFunction(FunctionValue Source)
+        {
+            this.FixValue = (FunctionValue)Source.Call(this);
+        }
+
+        public override Value Call(Value Argument)
+        {
+            return this.FixValue.Call(Argument);
+        }
+
+        public override Value SubstituteCall(Expression Argument)
+        {
+            return this.FixValue.SubstituteCall(Argument);
+        }
+
+        public FunctionValue FixValue;
+    }
+
+    /// <summary>
+    /// A heterogeneous collection of values. A tuple value may also be a type if all its values are types.
+    /// </summary>
+    public class TupleValue : Value
+    {
+        public TupleValue(Value[] Values)
+        {
+            this.Values = Values;
+        }
+
+        public override Type AsType
+        {
+            get
+            {
+                if (this.Values == null)
+                {
+                    return new TupleType(null);
+                }
+                Type[] types = new Type[this.Values.Length];
+                for (int t = 0; t < types.Length; t++)
+                {
+                    if ((types[t] = this.Values[t].AsType) == null)
+                    {
+                        return null;
+                    }
+                }
+                return new TupleType(types);
+            }
+        }
+
+        /// <summary>
+        /// The value for a tuple with no items.
+        /// </summary>
+        public static readonly TupleValue Empty = new TupleValue(null);
+
+        /// <summary>
+        /// Creates a tuple with one item.
+        /// </summary>
+        public static TupleValue Create(Value A)
+        {
+            return new TupleValue(new Value[] { A });
+        }
+
+        /// <summary>
+        /// Creates a tuple with two items.
+        /// </summary>
+        public static TupleValue Create(Value A, Value B)
+        {
+            return new TupleValue(new Value[] { A, B });
+        }
+
+        /// <summary>
+        /// Creates a tuple with three items.
+        /// </summary>
+        public static TupleValue Create(Value A, Value B, Value C)
+        {
+            return new TupleValue(new Value[] { A, B, C });
+        }
+
+        public override string Display(Type Type)
+        {
+            StringBuilder sb = new StringBuilder();
+            TupleType tt = (TupleType)Type;
+            for (int t = 0; t < this.Values.Length; t++)
+            {
+                if (t > 0)
+                {
+                    sb.Append(", ");
+                }
+                sb.Append(this.Values[t].Display(tt.Types[t]));
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// The values that make up the tuple. This can be null in the case of an empty tuple.
+        /// </summary>
+        public Value[] Values;
+    }
+
+    /// <summary>
+    /// A type of a tuple.
+    /// </summary>
+    public class TupleType : Type
+    {
+        public TupleType(Type[] Types)
+        {
+            this.Types = Types;
+        }
+
+        /// <summary>
+        /// The type for a tuple with no items.
+        /// </summary>
+        public static readonly TupleType Empty = new TupleType(null);
+
+        /// <summary>
+        /// Creates a type for a tuple with one item.
+        /// </summary>
+        public static TupleType Create(Type A)
+        {
+            return new TupleType(new Type[] { A });
+        }
+
+        /// <summary>
+        /// Creates a type for a tuple with two items.
+        /// </summary>
+        public static TupleType Create(Type A, Type B)
+        {
+            return new TupleType(new Type[] { A, B });
+        }
+
+        /// <summary>
+        /// Creates a type for a tuple with three items.
+        /// </summary>
+        public static TupleType Create(Type A, Type B, Type C)
+        {
+            return new TupleType(new Type[] { A, B, C });
+        }
+
+        /// <summary>
+        /// The types for the items in a tuple of this type.
+        /// </summary>
+        public Type[] Types;
+    }
+
+    /// <summary>
+    /// A function that always returns the same value.
+    /// </summary>
+    public class ConstantFunction : FunctionValue
+    {
+        public ConstantFunction(Value Value)
+        {
+            this.Value = Value;
+        }
+
+        public override Value Call(Value Argument)
+        {
+            return this.Value;
+        }
+
+        public override Value SubstituteCall(Expression Argument)
+        {
+            return this.Value;
+        }
+
+        /// <summary>
+        /// The value returned by this function.
+        /// </summary>
+        public Value Value;
     }
 
     /// <summary>
@@ -287,9 +547,9 @@ namespace SaltScript
             return "<variant constructor>";
         }
 
-        public override Value Call(Value[] Arguments)
+        public override Value Call(Value Argument)
         {
-            return new VariantValue(this.FormIndex, Arguments);
+            return new VariantValue(this.FormIndex, Argument);
         }
 
         /// <summary>
@@ -301,7 +561,7 @@ namespace SaltScript
     /// <summary>
     /// The delegate type for .net functions that can act as SaltScript functions.
     /// </summary>
-    public delegate Value FunctionHandler(Value[] Arguments);
+    public delegate Value FunctionHandler(Value Argument);
 
     /// <summary>
     /// Information about a datum (type/value pair).
@@ -468,14 +728,13 @@ namespace SaltScript
         /// <summary>
         /// Creates a type-safe version of the expression by using conversions where necessary. An exception will
         /// be thrown if this is not possible. Additionally the type of the expression will be returned. Both conversions are of type
-        /// &lt;type a, type b&gt;maybe(&lt;a&gt;b)
+        /// &lt;x&gt;x where x = &lt;type a, type b&gt;maybe(&lt;a&gt;b)
         /// </summary>
         /// <remarks>Type checking should always be performed before any other operation on the expression, as only the results
         /// given from type checking can be guaranteed to be accurate (along with all operations on the type safe expression). </remarks>
         public virtual void TypeCheck(
             VariableStack<Expression> Stack, 
-            Expression ImplicitConversion,
-            Expression ExplicitConversion,
+            FunctionValue ConversionFactory,
             out Expression TypeSafeExpression, out Type Type)
         {
             TypeSafeExpression = this;
@@ -511,6 +770,65 @@ namespace SaltScript
         public static ValueExpression Constant(Type Type, Value Value)
         {
             return new ValueExpression(Type, Value);
+        }
+
+        /// <summary>
+        /// The type of expression conversions factories. Functions of this type are used to find the conversion function
+        /// from one type to another. Note that the conversion function is recursive, and takes a fixed conversion
+        /// function.
+        /// </summary>
+        public static readonly FunctionType ConversionFactoryType = new FunctionType(FixedConversionType, FunctionValue.Constant(FixedConversionType));
+
+        /// <summary>
+        /// The more basic type of a conversion factory (nonrecursive).
+        /// </summary>
+        public static readonly FunctionType FixedConversionType = _CreateFixedConversionType();
+
+        /// <summary>
+        /// Returns a function that take a value of type "From" and converts it to a value of type "To". Null is returned if no conversion
+        /// exists for the type pair.
+        /// </summary>
+        public static FunctionValue GetConversion(FunctionValue UnfixedConversionFactory, Type From, Type To)
+        {
+            if (From == To)
+            {
+                return FunctionValue.Identity;
+            }
+            return GetConversionFixed((FunctionValue)UnfixedConversionFactory.Fix, From, To);
+        }
+
+        /// <summary>
+        /// Gets the type pair conversion function from a fixed conversion facory.
+        /// </summary>
+        public static FunctionValue GetConversionFixed(FunctionValue FixedConversionFactory, Type From, Type To)
+        {
+            if (From == To)
+            {
+                return FunctionValue.Identity;
+            }
+            VariantValue maybeconversion = (VariantValue)(FixedConversionFactory).Call(TupleValue.Create(From, To));
+            Value conversion;
+            if (Default.HasValue(maybeconversion, out conversion))
+            {
+                return (FunctionValue)conversion;
+            }
+            else
+            {
+                return null;
+            }
+        }
+
+        private static FunctionType _CreateFixedConversionType()
+        {
+            return new FunctionType(
+                TupleType.Create(Type.UniversalType, Type.UniversalType),
+                FunctionValue.Create(delegate(Value TypeTuple)
+                {
+                    return Default.MaybeTypeConstructor.Call(
+                        new FunctionType(
+                            TypeTuple.Get(0).AsType,
+                            FunctionValue.Constant(TypeTuple.Get(1))));
+                }));
         }
     }
 
@@ -593,47 +911,35 @@ namespace SaltScript
     /// </summary>
     public class FunctionCallExpression : Expression
     {
-        public FunctionCallExpression(Expression Function, Expression[] Arguments)
+        public FunctionCallExpression(Expression Function, Expression Argument)
         {
             this.Function = Function;
-            this.Arguments = Arguments;
+            this.Argument = Argument;
         }
 
         public override Value Evaluate(VariableStack<Value> Stack)
         {
-            Value func = this.Function.Evaluate(Stack);
-            Value[] args = new Value[this.Arguments.Length];
-            for (int t = 0; t < args.Length; t++)
-            {
-                args[t] = this.Arguments[t].Evaluate(Stack);
-            }
-            return (func as FunctionValue).Call(args);
+            return (this.Function.Evaluate(Stack) as FunctionValue).Call(this.Argument.Evaluate(Stack));
         }
 
         public override Type GetType(VariableStack<Expression> Stack)
         {
             FunctionType functype = this.Function.GetType(Stack) as FunctionType;
-            return functype.GetReturnType(Stack, this.Arguments);
+            return functype.GetReturnType(Stack, this.Argument);
         }
 
         public override Expression Substitute(VariableStack<Expression> Stack)
         {
-            Expression[] nargs = new Expression[this.Arguments.Length];
-            for(int t = 0; t < nargs.Length; t++)
-            {
-                nargs[t] = this.Arguments[t].Substitute(Stack);
-            }
-            return new FunctionCallExpression(this.Function.Substitute(Stack), nargs);
+            return new FunctionCallExpression(this.Function.Substitute(Stack), this.Argument.Substitute(Stack));
         }
 
         public override void TypeCheck(VariableStack<Expression> Stack, 
-            Expression ImplicitConversion,
-            Expression ExplicitConversion,
+            FunctionValue ConversionFactory,
             out Expression TypeSafeExpression, out Type Type)
         {
             Expression sfunction;
             Type possiblefunctiontype;
-            this.Function.TypeCheck(Stack, ImplicitConversion, ExplicitConversion, out sfunction, out possiblefunctiontype);
+            this.Function.TypeCheck(Stack, ConversionFactory, out sfunction, out possiblefunctiontype);
             
             FunctionType functiontype = possiblefunctiontype as FunctionType;
             if(functiontype == null)
@@ -641,33 +947,36 @@ namespace SaltScript
                 throw new NotCallableException(this);
             }
 
-            Expression[] sargs = new Expression[this.Arguments.Length];
-            Type[] argtypes = new Type[this.Arguments.Length];
-            for (int t = 0; t < this.Arguments.Length; t++)
-            {
-                this.Arguments[t].TypeCheck(Stack, ImplicitConversion, ExplicitConversion, out sargs[t], out argtypes[t]);
-            }
+            Expression sarg;
+            Type argtype;
+            this.Argument.TypeCheck(Stack, ConversionFactory, out sarg, out argtype);
 
             // Check types
-            bool okay = true;
-            for (int t = 0; t < argtypes.Length; t++)
+            FunctionValue conversion = Expression.GetConversion(ConversionFactory, argtype, functiontype.Argument);
+            if(conversion != null)
             {
-                if (argtypes[t] != functiontype.Arguments[t])
+                // We can save some time if the conversion function is identity (there is no conversion, but types are compatiable).
+                if (conversion != FunctionValue.Identity)
                 {
-                    okay = false;
-                    break;
+                    TypeSafeExpression =
+                        new FunctionCallExpression(sfunction,
+                            new FunctionCallExpression(
+                                Expression.Constant(new FunctionType(argtype, FunctionValue.Constant(functiontype.Argument)), conversion),
+                                sarg));
+                }
+                else
+                {
+                    TypeSafeExpression = new FunctionCallExpression(sfunction, sarg);
                 }
             }
-            if (!okay)
+            else
             {
+                // Incompatiable types
                 throw new TypeCheckException(this);
             }
 
             // Get return type
-            Type = functiontype.GetReturnType(Stack, sargs);
-
-            // Get new function call
-            TypeSafeExpression = new FunctionCallExpression(sfunction, sargs);
+            Type = functiontype.GetReturnType(Stack, sarg);
         }
 
         /// <summary>
@@ -676,9 +985,9 @@ namespace SaltScript
         public Expression Function;
 
         /// <summary>
-        /// Expressions for the arguments of the call.
+        /// Expressions for the argument of the call.
         /// </summary>
-        public Expression[] Arguments;
+        public Expression Argument;
     }
 
     /// <summary>
@@ -709,14 +1018,13 @@ namespace SaltScript
             return new AccessorExpression(this.Object.Substitute(Stack), this.Property);
         }
 
-        public override void TypeCheck(VariableStack<Expression> Stack, 
-            Expression ImplicitConversion, 
-            Expression ExplicitConversion, 
+        public override void TypeCheck(VariableStack<Expression> Stack,
+            FunctionValue ConversionFactory,
             out Expression TypeSafeExpression, out Type Type)
         {
             Expression sobject;
             Type objecttype;
-            this.Object.TypeCheck(Stack, ImplicitConversion, ExplicitConversion, out sobject, out objecttype);
+            this.Object.TypeCheck(Stack, ConversionFactory, out sobject, out objecttype);
 
             // Check if variant
             if (objecttype == Type.UniversalType)
@@ -729,7 +1037,7 @@ namespace SaltScript
                     if (vt.Lookup(this.Property, out vf, out index))
                     {
                         TypeSafeExpression = Expression.Constant(
-                            Type = new FunctionType(vf.DataTypes, Expression.Constant(Type.UniversalType, vt)),
+                            Type = new FunctionType(vf.DataType, FunctionValue.Constant(vt)),
                             new VariantConstructor(index));
                         return;
                     }
@@ -748,6 +1056,105 @@ namespace SaltScript
         /// The property to retreive from the object.
         /// </summary>
         public string Property;
+    }
+
+    /// <summary>
+    /// An expression that combines several values into a tuple.
+    /// </summary>
+    public class TupleExpression : Expression
+    {
+        public TupleExpression()
+        {
+
+        }
+
+        public TupleExpression(Expression[] Parts)
+        {
+            this.Parts = Parts;
+        }
+
+        public override Value Evaluate(VariableStack<Value> Stack)
+        {
+            if (this.Parts != null)
+            {
+                Value[] vals = new Value[this.Parts.Length];
+                for (int t = 0; t < this.Parts.Length; t++)
+                {
+                    vals[t] = this.Parts[t].Evaluate(Stack);
+                }
+                return new TupleValue(vals);
+            }
+            else
+            {
+                return TupleValue.Empty;
+            }
+        }
+
+        public override Type GetType(VariableStack<Expression> Stack)
+        {
+            if (this.Parts != null)
+            {
+                Type[] types = new Type[this.Parts.Length];
+                for (int t = 0; t < this.Parts.Length; t++)
+                {
+                    types[t] = this.Parts[t].GetType(Stack);
+                }
+                return new TupleType(types);
+            }
+            else
+            {
+                return TupleType.Empty;
+            }
+        }
+
+        public override Expression Substitute(VariableStack<Expression> Stack)
+        {
+            if (this.Parts != null)
+            {
+                Expression[] subs = new Expression[this.Parts.Length];
+                for (int t = 0; t < this.Parts.Length; t++)
+                {
+                    subs[t] = this.Parts[t].Substitute(Stack);
+                }
+                return new TupleExpression(subs);
+            }
+            else
+            {
+                return Empty;
+            }
+        }
+
+        public override void TypeCheck(VariableStack<Expression> Stack,
+            FunctionValue ConversionFactory,
+            out Expression TypeSafeExpression, out Type Type)
+        {
+            if (this.Parts != null && this.Parts.Length != 0)
+            {
+                Expression[] sparts = new Expression[this.Parts.Length];
+                Type[] stypes = new Type[this.Parts.Length];
+                for (int t = 0; t < this.Parts.Length; t++)
+                {
+                    this.Parts[t].TypeCheck(Stack, ConversionFactory, out sparts[t], out stypes[t]);
+                }
+                TypeSafeExpression = new TupleExpression(sparts);
+                Type = new TupleType(stypes);
+            }
+            else
+            {
+                TypeSafeExpression = Empty;
+                Type = TupleType.Empty;
+            }
+        }
+
+        /// <summary>
+        /// A make tuple expression that makes an empty tuple.
+        /// </summary>
+        public static readonly TupleExpression Empty = new TupleExpression();
+
+        /// <summary>
+        /// The individual parts of the tuple.
+        /// </summary>
+        public Expression[] Parts;
     }
 
     /// <summary>
@@ -808,7 +1215,7 @@ namespace SaltScript
             // Prepare
             Expression exp = Prepare(Expression, new Scope() { FunctionalDepth = 0, Variables = vars }, Input);
             Type exptype;
-            exp.TypeCheck(expstack, null, null, out exp, out exptype);
+            exp.TypeCheck(expstack, Default.ConversionFactory, out exp, out exptype);
 
             // Evaluate
             return new Datum(exptype, exp.Evaluate(datastack));
@@ -823,14 +1230,21 @@ namespace SaltScript
             Parser.FunctionCallExpression fce = Expression as Parser.FunctionCallExpression;
             if (fce != null)
             {
+                Expression func = Prepare(fce.Function, Scope, Input);
+                if (fce.Arguments.Count == 0)
+                {
+                    return new FunctionCallExpression(func, TupleExpression.Empty);
+                }
+                if (fce.Arguments.Count == 1)
+                {
+                    return new FunctionCallExpression(func, Prepare(fce.Arguments[0], Scope, Input));
+                }
                 Expression[] args = new Expression[fce.Arguments.Count];
                 for (int t = 0; t < args.Length; t++)
                 {
                     args[t] = Prepare(fce.Arguments[t], Scope, Input);
                 }
-                Expression func = Prepare(fce.Function, Scope, Input);
-
-                return new FunctionCallExpression(func, args);
+                return new FunctionCallExpression(func, new TupleExpression(args));
             }
 
             // Variable
