@@ -550,11 +550,11 @@ namespace SaltScript
         public static bool AcceptStatement(string Text, int Start, out Statement Statement, out int LastChar)
         {
             // Constant assignment
+            string varname;
             if (AcceptString(Text, Start, "const", out LastChar))
             {
                 if (AcceptWhitespace(Text, LastChar, out LastChar) > 0)
                 {
-                    string varname;
                     if (AcceptWord(Text, LastChar, out varname, out LastChar) && ValidVariable(varname))
                     {
                         if (AcceptWhitespace(Text, LastChar, out LastChar) > 0)
@@ -586,7 +586,6 @@ namespace SaltScript
             {
                 if (AcceptWhitespace(Text, LastChar, out LastChar) > 0)
                 {
-                    string varname;
                     if (AcceptWord(Text, LastChar, out varname, out LastChar) && ValidVariable(varname))
                     {
                         if (AcceptWhitespace(Text, LastChar, out LastChar) > 0)
@@ -605,6 +604,30 @@ namespace SaltScript
                                             return true;
                                         }
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Assign
+            if (AcceptWord(Text, Start, out varname, out LastChar) && ValidVariable(varname))
+            {
+                if (AcceptWhitespace(Text, LastChar, out LastChar) > 0)
+                {
+                    if (AcceptString(Text, LastChar, "=", out LastChar))
+                    {
+                        if (AcceptWhitespace(Text, LastChar, out LastChar) > 0)
+                        {
+                            Expression value;
+                            if (AcceptExpression(Text, LastChar, out value, out LastChar))
+                            {
+                                AcceptWhitespace(Text, LastChar, out LastChar);
+                                if (AcceptString(Text, LastChar, ";", out LastChar))
+                                {
+                                    Statement = new AssignStatement(varname, value);
+                                    return true;
                                 }
                             }
                         }
@@ -811,7 +834,7 @@ namespace SaltScript
         }
 
         /// <summary>
-        /// A statement giving a value from a scope.
+        /// A statement giving a value from a procedure.
         /// </summary>
         public class ReturnStatement : Statement
         {

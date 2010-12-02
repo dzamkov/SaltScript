@@ -128,4 +128,103 @@ namespace SaltScript
         /// </summary>
         public Type[] Types;
     }
+
+    /// <summary>
+    /// An expression that combines several values into a tuple.
+    /// </summary>
+    public class TupleExpression : Expression
+    {
+        public TupleExpression()
+        {
+
+        }
+
+        public TupleExpression(Expression[] Parts)
+        {
+            this.Parts = Parts;
+        }
+
+        public override Value Evaluate(VariableStack<Value> Stack)
+        {
+            if (this.Parts != null)
+            {
+                Value[] vals = new Value[this.Parts.Length];
+                for (int t = 0; t < this.Parts.Length; t++)
+                {
+                    vals[t] = this.Parts[t].Evaluate(Stack);
+                }
+                return new TupleValue(vals);
+            }
+            else
+            {
+                return TupleValue.Empty;
+            }
+        }
+
+        public override Type GetType(VariableStack<Expression> Stack)
+        {
+            if (this.Parts != null)
+            {
+                Type[] types = new Type[this.Parts.Length];
+                for (int t = 0; t < this.Parts.Length; t++)
+                {
+                    types[t] = this.Parts[t].GetType(Stack);
+                }
+                return new TupleType(types);
+            }
+            else
+            {
+                return TupleType.Empty;
+            }
+        }
+
+        public override Expression Substitute(VariableStack<Expression> Stack)
+        {
+            if (this.Parts != null)
+            {
+                Expression[] subs = new Expression[this.Parts.Length];
+                for (int t = 0; t < this.Parts.Length; t++)
+                {
+                    subs[t] = this.Parts[t].Substitute(Stack);
+                }
+                return new TupleExpression(subs);
+            }
+            else
+            {
+                return Empty;
+            }
+        }
+
+        public override void TypeCheck(VariableStack<Expression> Stack,
+            FunctionValue ConversionFactory,
+            out Expression TypeSafeExpression, out Type Type)
+        {
+            if (this.Parts != null && this.Parts.Length != 0)
+            {
+                Expression[] sparts = new Expression[this.Parts.Length];
+                Type[] stypes = new Type[this.Parts.Length];
+                for (int t = 0; t < this.Parts.Length; t++)
+                {
+                    this.Parts[t].TypeCheck(Stack, ConversionFactory, out sparts[t], out stypes[t]);
+                }
+                TypeSafeExpression = new TupleExpression(sparts);
+                Type = new TupleType(stypes);
+            }
+            else
+            {
+                TypeSafeExpression = Empty;
+                Type = TupleType.Empty;
+            }
+        }
+
+        /// <summary>
+        /// A make tuple expression that makes an empty tuple.
+        /// </summary>
+        public static readonly TupleExpression Empty = new TupleExpression();
+
+        /// <summary>
+        /// The individual parts of the tuple.
+        /// </summary>
+        public Expression[] Parts;
+    }
 }
