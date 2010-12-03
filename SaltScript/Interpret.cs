@@ -66,6 +66,23 @@ namespace SaltScript
             this._Values = Values;
         }
 
+        public VariableStack(int FunctionalDepth, TValue[] Values)
+        {
+            this._FunctionalDepth = FunctionalDepth;
+            this._Values = Values;
+        }
+
+        /// <summary>
+        /// Gets the index of the variable after the last in the stack.
+        /// </summary>
+        public VariableIndex LastIndex
+        {
+            get
+            {
+                return new VariableIndex(this._StartIndex + this._Values.Length, this._FunctionalDepth);
+            }
+        }
+
         /// <summary>
         /// Appends values to the stack and returns the new stack.
         /// </summary>
@@ -76,6 +93,20 @@ namespace SaltScript
                 _FunctionalDepth = this._FunctionalDepth,
                 _Lower =  this,
                 _StartIndex = this._StartIndex + this._Values.Length,
+                _Values = Values
+            };
+        }
+
+        /// <summary>
+        /// Appends values to the stack at a higher functional depth.
+        /// </summary>
+        public VariableStack<TValue> AppendHigherFunction(TValue[] Values)
+        {
+            return new VariableStack<TValue>()
+            {
+                _FunctionalDepth = this._FunctionalDepth + 1,
+                _Lower = this,
+                _StartIndex = 0,
                 _Values = Values
             };
         }
@@ -92,6 +123,25 @@ namespace SaltScript
         }
 
         /// <summary>
+        /// Tries getting the variable with the specified index, returning false if not found.
+        /// </summary>
+        public bool Lookup(VariableIndex Index, out TValue Value)
+        {
+            VariableStack<TValue> stack;
+            int valindex;
+            if (this._GetIndex(Index, out stack, out valindex))
+            {
+                Value = stack._Values[valindex];
+                return true;
+            }
+            else
+            {
+                Value = default(TValue);
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Modifies a variable on the stack.
         /// </summary>
         public void Modify(VariableIndex Index, TValue Value)
@@ -102,14 +152,20 @@ namespace SaltScript
             stack._Values[valindex] = Value;
         }
 
-        private void _GetIndex(VariableIndex Index, out VariableStack<TValue> Stack, out int ValIndex)
+        private bool _GetIndex(VariableIndex Index, out VariableStack<TValue> Stack, out int ValIndex)
         {
             Stack = this;
             while (Stack._FunctionalDepth > Index.FunctionalDepth || Stack._StartIndex > Index.StackIndex)
             {
                 Stack = Stack._Lower;
+                if (Stack == null)
+                {
+                    ValIndex = 0;
+                    return false;
+                }
             }
             ValIndex = Index.StackIndex - Stack._StartIndex;
+            return true;
         }
 
         /// <summary>
@@ -138,10 +194,15 @@ namespace SaltScript
     /// </summary>
     public abstract class InterpreterInput
     {
+        public InterpreterInput()
+        {
+            this._RootVariables = new List<_RootVariable>();
+        }
+
         /// <summary>
         /// Gets the type integer literals are assigned with.
         /// </summary>
-        public abstract Type IntegerLiteralType { get; }
+        public abstract Expression IntegerLiteralType { get; }
 
         /// <summary>
         /// Gets the value for the specified integer literal.
@@ -149,9 +210,47 @@ namespace SaltScript
         public abstract Value GetIntegerLiteral(long Value);
 
         /// <summary>
-        /// The values in the root scope.
+        /// Adds a variable to the root scope, returning an expression that can be used to reference it.
         /// </summary>
-        public Dictionary<string, Datum> RootValues;
+        protected Expression AddRootVariable(string Name, Expression Type, Value Value)
+        {
+            int i = this._RootVariables.Count;
+            this._RootVariables.Add(new _RootVariable()
+            {
+                Name = Name,
+                Type = Type,
+                Value = Value
+            });
+            return Expression.Variable(new VariableIndex(i, 0));
+        }
+
+        /// <summary>
+        /// Creates stacks and information about the root scope of this input.
+        /// </summary>
+        public void PrepareRootScope(out Scope Scope, out VariableStack<Value> Stack, out VariableStack<Expression> TypeStack)
+        {
+            Dictionary<string, int> varmap = new Dictionary<string, int>();
+            Value[] vals = new Value[this._RootVariables.Count];
+            Expression[] types = new Expression[vals.Length];
+            for (int t = 0; t < vals.Length; t++)
+            {
+                vals[t] = this._RootVariables[t].Value;
+                types[t] = this._RootVariables[t].Type;
+                varmap.Add(this._RootVariables[t].Name, t);
+            }
+            Scope = new Scope() { FunctionalDepth = 0, Variables = varmap };
+            Stack = new VariableStack<Value>(vals);
+            TypeStack = new VariableStack<Expression>(types);
+        }
+
+        private struct _RootVariable
+        {
+            public string Name;
+            public Expression Type;
+            public Value Value;
+        };
+
+        private List<_RootVariable> _RootVariables;
     }
 
     /// <summary>
@@ -173,28 +272,18 @@ namespace SaltScript
         public static Datum Evaluate(Parser.Expression Expression, InterpreterInput Input)
         {
             // Assign all input variables to a position on the stack of the root scope. (Seperates names and values)
-            int rootvars = Input.RootValues.Count;
-            Dictionary<string, int> vars = new Dictionary<string, int>(rootvars);
-            Value[] data = new Value[rootvars];
-            Expression[] exps = new Expression[rootvars];
-            int i = 0;
-            foreach (var kvp in Input.RootValues)
-            {
-                data[i] = kvp.Value.Value;
-                exps[i] = new ValueExpression(kvp.Value);
-                vars[kvp.Key] = i;
-                i++;
-            }
-            var datastack = new VariableStack<Value>(data);
-            var expstack = new VariableStack<Expression>(exps);
+            VariableStack<Expression> typestack;
+            VariableStack<Value> datastack;
+            Scope scope;
+            Input.PrepareRootScope(out scope, out datastack, out typestack);
 
             // Prepare
-            Expression exp = Prepare(Expression, new Scope() { FunctionalDepth = 0, Variables = vars }, Input);
-            Type exptype;
-            exp.TypeCheck(expstack, Default.ConversionFactory, out exp, out exptype);
+            Expression exp = Prepare(Expression, scope, Input);
+            Expression exptype;
+            exp.TypeCheck(typestack, out exp, out exptype);
 
             // Evaluate
-            return new Datum(exptype, exp.Evaluate(datastack));
+            return new Datum(exp.Evaluate(datastack), exptype);
         }
 
         /// <summary>
@@ -234,7 +323,7 @@ namespace SaltScript
             Parser.IntegerLiteralExpression ile = Expression as Parser.IntegerLiteralExpression;
             if (ile != null)
             {
-                return new ValueExpression(Input.IntegerLiteralType, Input.GetIntegerLiteral(ile.Value));
+                return new ValueExpression(Input.GetIntegerLiteral(ile.Value), Input.IntegerLiteralType);
             }
 
             // Accessor

@@ -14,26 +14,6 @@ namespace SaltScript
             this.Values = Values;
         }
 
-        public override Type AsType
-        {
-            get
-            {
-                if (this.Values == null)
-                {
-                    return new TupleType(null);
-                }
-                Type[] types = new Type[this.Values.Length];
-                for (int t = 0; t < types.Length; t++)
-                {
-                    if ((types[t] = this.Values[t].AsType) == null)
-                    {
-                        return null;
-                    }
-                }
-                return new TupleType(types);
-            }
-        }
-
         /// <summary>
         /// The value for a tuple with no items.
         /// </summary>
@@ -63,74 +43,13 @@ namespace SaltScript
             return new TupleValue(new Value[] { A, B, C });
         }
 
-        public override string Display(Type Type)
-        {
-            StringBuilder sb = new StringBuilder();
-            TupleType tt = (TupleType)Type;
-            for (int t = 0; t < this.Values.Length; t++)
-            {
-                if (t > 0)
-                {
-                    sb.Append(", ");
-                }
-                sb.Append(this.Values[t].Display(tt.Types[t]));
-            }
-            return sb.ToString();
-        }
-
         /// <summary>
         /// The values that make up the tuple. This can be null in the case of an empty tuple.
         /// </summary>
         public Value[] Values;
     }
-
     /// <summary>
-    /// A type of a tuple.
-    /// </summary>
-    public class TupleType : Type
-    {
-        public TupleType(Type[] Types)
-        {
-            this.Types = Types;
-        }
-
-        /// <summary>
-        /// The type for a tuple with no items.
-        /// </summary>
-        public static readonly TupleType Empty = new TupleType(null);
-
-        /// <summary>
-        /// Creates a type for a tuple with one item.
-        /// </summary>
-        public static TupleType Create(Type A)
-        {
-            return new TupleType(new Type[] { A });
-        }
-
-        /// <summary>
-        /// Creates a type for a tuple with two items.
-        /// </summary>
-        public static TupleType Create(Type A, Type B)
-        {
-            return new TupleType(new Type[] { A, B });
-        }
-
-        /// <summary>
-        /// Creates a type for a tuple with three items.
-        /// </summary>
-        public static TupleType Create(Type A, Type B, Type C)
-        {
-            return new TupleType(new Type[] { A, B, C });
-        }
-
-        /// <summary>
-        /// The types for the items in a tuple of this type.
-        /// </summary>
-        public Type[] Types;
-    }
-
-    /// <summary>
-    /// An expression that combines several values into a tuple.
+    /// An expression that combines several values into a tuple. This expression can be evaluated, and used as a type.
     /// </summary>
     public class TupleExpression : Expression
     {
@@ -142,6 +61,23 @@ namespace SaltScript
         public TupleExpression(Expression[] Parts)
         {
             this.Parts = Parts;
+        }
+
+        public override Expression Reduce(VariableIndex LastIndex)
+        {
+            if (this.Parts != null && this.Parts.Length > 0)
+            {
+                Expression[] nexps = new Expression[this.Parts.Length];
+                for (int t = 0; t < nexps.Length; t++)
+                {
+                    nexps[t] = this.Parts[t].Reduce(LastIndex);
+                }
+                return new TupleExpression(nexps);
+            }
+            else
+            {
+                return Empty;
+            }
         }
 
         public override Value Evaluate(VariableStack<Value> Stack)
@@ -158,23 +94,6 @@ namespace SaltScript
             else
             {
                 return TupleValue.Empty;
-            }
-        }
-
-        public override Type GetType(VariableStack<Expression> Stack)
-        {
-            if (this.Parts != null)
-            {
-                Type[] types = new Type[this.Parts.Length];
-                for (int t = 0; t < this.Parts.Length; t++)
-                {
-                    types[t] = this.Parts[t].GetType(Stack);
-                }
-                return new TupleType(types);
-            }
-            else
-            {
-                return TupleType.Empty;
             }
         }
 
@@ -195,25 +114,23 @@ namespace SaltScript
             }
         }
 
-        public override void TypeCheck(VariableStack<Expression> Stack,
-            FunctionValue ConversionFactory,
-            out Expression TypeSafeExpression, out Type Type)
+        public override void TypeCheck(VariableStack<Expression> TypeStack, out Expression TypeSafeExpression, out Expression Type)
         {
             if (this.Parts != null && this.Parts.Length != 0)
             {
                 Expression[] sparts = new Expression[this.Parts.Length];
-                Type[] stypes = new Type[this.Parts.Length];
+                Expression[] stypes = new Expression[this.Parts.Length];
                 for (int t = 0; t < this.Parts.Length; t++)
                 {
-                    this.Parts[t].TypeCheck(Stack, ConversionFactory, out sparts[t], out stypes[t]);
+                    this.Parts[t].TypeCheck(TypeStack, out sparts[t], out stypes[t]);
                 }
                 TypeSafeExpression = new TupleExpression(sparts);
-                Type = new TupleType(stypes);
+                Type = new TupleExpression(stypes);
             }
             else
             {
                 TypeSafeExpression = Empty;
-                Type = TupleType.Empty;
+                Type = Empty;
             }
         }
 

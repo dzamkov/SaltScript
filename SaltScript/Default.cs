@@ -5,14 +5,6 @@ using System.Text;
 namespace SaltScript
 {
     /// <summary>
-    /// Default integer type.
-    /// </summary>
-    public class IntType : Type
-    {
-
-    }
-
-    /// <summary>
     /// Value of an integer of the default type.
     /// </summary>
     public class IntValue : Value
@@ -25,7 +17,7 @@ namespace SaltScript
     /// </summary>
     public static class Default
     {
-        /// <summary>
+        /*/// <summary>
         /// Integer type.
         /// </summary>
         public static readonly Type IntType = new _IntType();
@@ -82,95 +74,12 @@ namespace SaltScript
                 Value = null;
                 return false;
             }
-        }
+        }*/
 
         /// <summary>
         /// Default interpret input.
         /// </summary>
         public static readonly InterpreterInput Input = new _Input();
-
-        /// <summary>
-        /// The default conversion factory.
-        /// </summary>
-        public static readonly FunctionValue ConversionFactory = _CreateDefaultImplicitConversion();
-
-        private static FunctionValue _CreateDefaultImplicitConversion()
-        {
-            return FunctionValue.Create(delegate(Value fixedconv)
-            {
-                FunctionValue ffixedconv = (FunctionValue)fixedconv;
-                return FunctionValue.Create(delegate(Value types)
-                {
-                    Type from = types.Get(0).AsType;
-                    Type to = types.Get(1).AsType;
-
-                    // Types are the same? anwser is obvious
-                    if (from == to)
-                    {
-                        return Just(FunctionValue.Identity);
-                    }
-
-                    // Types are both tuples, we can individually convert each part.
-                    TupleType fromtt = from as TupleType;
-                    TupleType tott = to as TupleType;
-                    if (fromtt != null && tott != null)
-                    {
-                        if (fromtt.Types == null)
-                        {
-                            if (tott.Types == null)
-                            {
-                                return Just(FunctionValue.Identity);
-                            }
-                            return Nothing;
-                        }
-
-                        if (fromtt.Types.Length != tott.Types.Length)
-                        {
-                            return Nothing;
-                        }
-
-                        FunctionValue[] convs = new FunctionValue[fromtt.Types.Length];
-                        for (int t = 0; t < convs.Length; t++)
-                        {
-                            if ((convs[t] = Expression.GetConversionFixed(ffixedconv, fromtt.Types[t], tott.Types[t])) == null)
-                            {
-                                return Nothing;
-                            }
-                            else
-                            {
-                                if (convs[t] == FunctionValue.Identity)
-                                {
-                                    // Quick optimization, since most tuple parts remain unaffected.
-                                    convs[t] = null;
-                                }
-                            }
-                        }
-                        
-                        return Just(FunctionValue.Create(delegate(Value values)
-                        {
-                            TupleValue tv = (TupleValue)values;
-                            Value[] outvals = new Value[convs.Length];
-                            for (int t = 0; t < convs.Length; t++)
-                            {
-                                FunctionValue conv = convs[t];
-                                if (conv == null)
-                                {
-                                    outvals[t] = tv.Values[t]; 
-                                }
-                                else
-                                {
-                                    outvals[t] = conv.Call(tv.Values[t]);
-                                }
-                            }
-                            return new TupleValue(outvals);
-                        }));
-                    }
-
-                    // Well, I don't know...
-                    return Nothing;
-                });
-            });
-        }
 
         /// <summary>
         /// Makes a value for an integer.
@@ -188,20 +97,12 @@ namespace SaltScript
             return ((_IntValue)Value).Value;
         }
 
-        private class _IntType : Type
-        {
-            public override string Display(Type Type)
-            {
-                return "int";
-            }
-        }
-
         private class _IntValue : Value
         {
-            public override string Display(Type Type)
+            public override string ToString()
             {
                 return this.Value.ToString();
-            } 
+            }
 
             public int Value;
         }
@@ -210,36 +111,46 @@ namespace SaltScript
         {
             public _Input()
             {
-                this.RootValues = new Dictionary<string, Datum>();
-                this.RootValues.Add("type", new Datum(Type.UniversalType, Type.UniversalType));
-                this.RootValues.Add("int", new Datum(Type.UniversalType, IntType));
-                this.RootValues.Add("maybe", new Datum(
-                    new FunctionType(Type.UniversalType, FunctionValue.Constant(Type.UniversalType)),
-                    MaybeTypeConstructor));
-                this._AddBinaryFunction("+", IntType, IntType, IntType, x => MakeIntValue(GetIntValue(x.Get(0)) + GetIntValue(x.Get(1))));
-                this._AddBinaryFunction("-", IntType, IntType, IntType, x => MakeIntValue(GetIntValue(x.Get(0)) - GetIntValue(x.Get(1))));
-                this._AddBinaryFunction("*", IntType, IntType, IntType, x => MakeIntValue(GetIntValue(x.Get(0)) * GetIntValue(x.Get(1))));
+                this.AddRootVariable("type", Expression.UniversalType, null);
+                this.IntType = this.AddRootVariable("int", Expression.UniversalType, null);
+                this.AddBinaryFunction("+", this.IntType, this.IntType, this.IntType, (x, y) => MakeIntValue(GetIntValue(x) + GetIntValue(y)));
+                this.AddBinaryFunction("-", this.IntType, this.IntType, this.IntType, (x, y) => MakeIntValue(GetIntValue(x) - GetIntValue(y)));
+                this.AddBinaryFunction("*", this.IntType, this.IntType, this.IntType, (x, y) => MakeIntValue(GetIntValue(x) * GetIntValue(y)));
             }
 
-            private void _AddBinaryFunction(string Name, Type TypeA, Type TypeB, Type ReturnType, FunctionHandler Handler)
+            public Expression AddBinaryFunction(string Name, Expression TypeA, Expression TypeB, Expression ReturnType, BinaryFunction Handler)
             {
-                this.RootValues.Add(Name, new Datum(
-                    new FunctionType(TupleType.Create(TypeA, TypeB), FunctionValue.Constant(ReturnType)),
-                    FunctionValue.Create(Handler)));
+                return this.AddRootVariable(Name, Expression.SimpleFunctionType(Expression.Tuple(TypeA, TypeB), ReturnType),
+                    new BinaryFunctionValue() { Function = Handler });
             }
 
-            public override Type IntegerLiteralType
+            public class BinaryFunctionValue : FunctionValue
             {
-                get
+                public override Value Call(Value Argument)
                 {
-                    return IntType;   
+                    TupleValue tv = (TupleValue)Argument;
+                    return this.Function(tv.Values[0], tv.Values[1]);
                 }
+
+                public BinaryFunction Function;
             }
+
+            public delegate Value BinaryFunction(Value A, Value B);
 
             public override Value GetIntegerLiteral(long Value)
             {
                 return MakeIntValue((int)Value);
             }
+
+            public override Expression IntegerLiteralType
+            {
+                get
+                {
+                    return this.IntType;
+                }
+            }
+
+            private Expression IntType;
         }
     }
 }
