@@ -307,14 +307,12 @@ namespace SaltScript
             {
                 ProcedureExpression procedure;
                 AcceptWhitespace(Text, LastChar, out LastChar);
-                if (AcceptProcedure(Text, LastChar, out procedure, out LastChar))
+                AcceptProcedure(Text, LastChar, out procedure, out LastChar);
+                AcceptWhitespace(Text, LastChar, out LastChar);
+                if (AcceptString(Text, LastChar, "}", out LastChar))
                 {
-                    AcceptWhitespace(Text, LastChar, out LastChar);
-                    if (AcceptString(Text, LastChar, "}", out LastChar))
-                    {
-                        Expression = procedure;
-                        return true;
-                    }
+                    Expression = procedure;
+                    return true;
                 }
             }
 
@@ -660,7 +658,7 @@ namespace SaltScript
         /// <summary>
         /// Parses a procedure expression.
         /// </summary>
-        public static bool AcceptProcedure(string Text, int Start, out ProcedureExpression Expression, out int LastChar)
+        public static void AcceptProcedure(string Text, int Start, out ProcedureExpression Expression, out int LastChar)
         {
             List<Statement> statements = new List<Statement>();
             Statement statement;
@@ -679,14 +677,14 @@ namespace SaltScript
                     else
                     {
                         Expression = new ProcedureExpression(statements);
-                        return true;
+                        return;
                     }
                 }
             }
             else
             {
-                Expression = null;
-                return false;
+                LastChar = Start;
+                Expression = new ProcedureExpression(new List<Statement>());
             }
         }
 
@@ -739,15 +737,20 @@ namespace SaltScript
         {
             public ProcedureExpression(IEnumerable<Statement> Statements)
             {
-                this.Statements = new List<Statement>(Statements);
+                this.Statement = new CompoundStatement(Statements);
             }
 
             public ProcedureExpression(List<Statement> Statements)
             {
-                this.Statements = Statements;
+                this.Statement = new CompoundStatement(Statements);
             }
 
-            public List<Statement> Statements;
+            public ProcedureExpression(Statement Statement)
+            {
+                this.Statement = Statement;
+            }
+
+            public Statement Statement;
         }
 
         /// <summary>
@@ -854,6 +857,11 @@ namespace SaltScript
             public CompoundStatement(IEnumerable<Statement> Statements)
             {
                 this.Statements = new List<Statement>(Statements);
+            }
+
+            public CompoundStatement(List<Statement> Statements)
+            {
+                this.Statements = Statements;
             }
 
             public List<Statement> Statements;

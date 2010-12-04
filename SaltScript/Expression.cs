@@ -9,6 +9,79 @@ namespace SaltScript
     public abstract class Expression
     {
         /// <summary>
+        /// Prepares a parsed expression for use.
+        /// </summary>
+        public static Expression Prepare(Parser.Expression Expression, Scope Scope, ProgramInput Input)
+        {
+            // Function call
+            Parser.FunctionCallExpression fce = Expression as Parser.FunctionCallExpression;
+            if (fce != null)
+            {
+                Expression func = Prepare(fce.Function, Scope, Input);
+                if (fce.Arguments.Count == 0)
+                {
+                    return new FunctionCallExpression(func, TupleExpression.Empty);
+                }
+                if (fce.Arguments.Count == 1)
+                {
+                    return new FunctionCallExpression(func, Prepare(fce.Arguments[0], Scope, Input));
+                }
+                Expression[] args = new Expression[fce.Arguments.Count];
+                for (int t = 0; t < args.Length; t++)
+                {
+                    args[t] = Prepare(fce.Arguments[t], Scope, Input);
+                }
+                return new FunctionCallExpression(func, new TupleExpression(args));
+            }
+
+            // Procedure
+            Parser.ProcedureExpression pe = Expression as Parser.ProcedureExpression;
+            if (pe != null)
+            {
+                return ProcedureExpression.Prepare(pe, Scope, Input);
+            }
+
+            // Variable
+            Parser.VariableExpression ve = Expression as Parser.VariableExpression;
+            if (ve != null)
+            {
+                return PrepareVariable(ve.Name, Scope);
+            }
+
+            // Integer liteal
+            Parser.IntegerLiteralExpression ile = Expression as Parser.IntegerLiteralExpression;
+            if (ile != null)
+            {
+                return new ValueExpression(Input.GetIntegerLiteral(ile.Value), Input.IntegerLiteralType);
+            }
+
+            // Accessor
+            Parser.AccessorExpression ae = Expression as Parser.AccessorExpression;
+            if (ae != null)
+            {
+                return new AccessorExpression(Prepare(ae.Object, Scope, Input), ae.Property);
+            }
+
+            throw new NotImplementedException();
+        }
+
+        /// <summary>
+        /// Prepares a variable expression based on its name and the scope it's used in. Returns null if the variable is not found.
+        /// </summary>
+        public static VariableExpression PrepareVariable(string Name, Scope Scope)
+        {
+            VariableIndex index;
+            if (Scope.LookupVariable(Name, out index))
+            {
+                return new VariableExpression(index);
+            }
+            else
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Evaluates the expression with the given immediate value stack.
         /// </summary>
         public virtual Value Evaluate(VariableStack<Value> Stack)

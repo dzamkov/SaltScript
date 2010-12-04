@@ -9,6 +9,10 @@ namespace SaltScript
     /// </summary>
     public class Scope
     {
+        public Scope()
+        {
+
+        }
 
         /// <summary>
         /// Gets the functional depth and index of the specified variable, if it is found.
@@ -32,6 +36,22 @@ namespace SaltScript
                     Index = new VariableIndex();
                     return false;
                 }
+            }
+        }
+
+        /// <summary>
+        /// Gets the next unassigned variable index.
+        /// </summary>
+        public VariableIndex NextFreeIndex
+        {
+            get
+            {
+                int max = 0;
+                foreach (int v in this.Variables.Values)
+                {
+                    max = max < v ? v : max;
+                }
+                return new VariableIndex(max + 1, this.FunctionalDepth);
             }
         }
 
@@ -94,6 +114,20 @@ namespace SaltScript
                 _Lower =  this,
                 _StartIndex = this._StartIndex + this._Values.Length,
                 _Values = Values
+            };
+        }
+
+        /// <summary>
+        /// Appends the specified amount of variables on the stack.
+        /// </summary>
+        public VariableStack<TValue> Append(int Amount)
+        {
+            return new VariableStack<TValue>()
+            {
+                _FunctionalDepth = this._FunctionalDepth,
+                _Lower = this,
+                _StartIndex = this._StartIndex + this._Values.Length,
+                _Values = new TValue[Amount]
             };
         }
 
@@ -192,9 +226,9 @@ namespace SaltScript
     /// <summary>
     /// Input to the interpreter, containing information about the root scope and how to process certain expressions.
     /// </summary>
-    public abstract class InterpreterInput
+    public abstract class ProgramInput
     {
-        public InterpreterInput()
+        public ProgramInput()
         {
             this._RootVariables = new List<_RootVariable>();
         }
@@ -261,15 +295,15 @@ namespace SaltScript
         /// <summary>
         /// Evaluates a parsed expression using the default interpreter input.
         /// </summary>
-        public static Datum Evaluate(Parser.Expression Expression)
+        public static Datum Evaluate(Parser.Expression ParsedExpression)
         {
-            return Evaluate(Expression, Default.Input);
+            return Evaluate(ParsedExpression, Default.Input);
         }
 
         /// <summary>
         /// Evaluates a parsed expression using the specified interpreter input.
         /// </summary>
-        public static Datum Evaluate(Parser.Expression Expression, InterpreterInput Input)
+        public static Datum Evaluate(Parser.Expression ParsedExpression, ProgramInput Input)
         {
             // Assign all input variables to a position on the stack of the root scope. (Seperates names and values)
             VariableStack<Expression> typestack;
@@ -278,78 +312,12 @@ namespace SaltScript
             Input.PrepareRootScope(out scope, out datastack, out typestack);
 
             // Prepare
-            Expression exp = Prepare(Expression, scope, Input);
+            Expression exp = Expression.Prepare(ParsedExpression, scope, Input);
             Expression exptype;
             exp.TypeCheck(typestack, out exp, out exptype);
 
             // Evaluate
             return new Datum(exp.Evaluate(datastack), exptype);
-        }
-
-        /// <summary>
-        /// Prepares a parsed expression for use.
-        /// </summary>
-        public static Expression Prepare(Parser.Expression Expression, Scope Scope, InterpreterInput Input)
-        {
-            // Function call
-            Parser.FunctionCallExpression fce = Expression as Parser.FunctionCallExpression;
-            if (fce != null)
-            {
-                Expression func = Prepare(fce.Function, Scope, Input);
-                if (fce.Arguments.Count == 0)
-                {
-                    return new FunctionCallExpression(func, TupleExpression.Empty);
-                }
-                if (fce.Arguments.Count == 1)
-                {
-                    return new FunctionCallExpression(func, Prepare(fce.Arguments[0], Scope, Input));
-                }
-                Expression[] args = new Expression[fce.Arguments.Count];
-                for (int t = 0; t < args.Length; t++)
-                {
-                    args[t] = Prepare(fce.Arguments[t], Scope, Input);
-                }
-                return new FunctionCallExpression(func, new TupleExpression(args));
-            }
-
-            // Variable
-            Parser.VariableExpression ve = Expression as Parser.VariableExpression;
-            if (ve != null)
-            {
-                return PrepareVariable(ve.Name, Scope);
-            }
-
-            // Integer liteal
-            Parser.IntegerLiteralExpression ile = Expression as Parser.IntegerLiteralExpression;
-            if (ile != null)
-            {
-                return new ValueExpression(Input.GetIntegerLiteral(ile.Value), Input.IntegerLiteralType);
-            }
-
-            // Accessor
-            Parser.AccessorExpression ae = Expression as Parser.AccessorExpression;
-            if (ae != null)
-            {
-                return new AccessorExpression(Prepare(ae.Object, Scope, Input), ae.Property);
-            }
-
-            throw new NotImplementedException();
-        }
-
-        /// <summary>
-        /// Prepares a variable expression based on its name and the scope it's used in. Returns null if the variable is not found.
-        /// </summary>
-        public static VariableExpression PrepareVariable(string Name, Scope Scope)
-        {
-            VariableIndex index;
-            if (Scope.LookupVariable(Name, out index))
-            {
-                return new VariableExpression(index);
-            }
-            else
-            {
-                return null;
-            }
         }
 
         /// <summary>

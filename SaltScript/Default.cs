@@ -79,7 +79,7 @@ namespace SaltScript
         /// <summary>
         /// Default interpret input.
         /// </summary>
-        public static readonly InterpreterInput Input = new _Input();
+        public static readonly ProgramInput Input = new _Input();
 
         /// <summary>
         /// Makes a value for an integer.
@@ -107,7 +107,7 @@ namespace SaltScript
             public int Value;
         }
 
-        private class _Input : InterpreterInput
+        private class _Input : ProgramInput
         {
             public _Input()
             {
