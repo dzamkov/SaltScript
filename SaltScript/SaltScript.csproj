@@ -65,4 +65,7 @@
   <Target Name="AfterBuild">
   </Target>
   -->
+  <PropertyGroup>
+    <PostBuildEvent>copy "$(ProjectDir)Output" "$(TargetDir)"</PostBuildEvent>
+  </PropertyGroup>
 </Project>

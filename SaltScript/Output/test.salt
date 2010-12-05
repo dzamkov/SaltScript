@@ -1,0 +1,4 @@
+int x = 5;
+int y = 10;
+int z = ((int a) => ((int b) => a * b))(5)(7);
+return x * x + y * y + z;

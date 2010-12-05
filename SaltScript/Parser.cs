@@ -329,7 +329,8 @@ namespace SaltScript
             if (AcceptString(Text, Start, "(", out LastChar))
             {
                 // Operator
-                if (AcceptWord(Text, LastChar, out varname, out LastChar) && LookupOperator(varname, out op))
+                int nc = LastChar;
+                if (AcceptWord(Text, nc, out varname, out LastChar) && LookupOperator(varname, out op))
                 {
                     if (AcceptString(Text, LastChar, ")", out LastChar))
                     {
@@ -339,7 +340,7 @@ namespace SaltScript
                 }
 
                 Expression exp;
-                AcceptWhitespace(Text, LastChar, out LastChar);
+                AcceptWhitespace(Text, nc, out LastChar);
                 if (AcceptExpression(Text, LastChar, out exp, out LastChar))
                 {
                     AcceptWhitespace(Text, LastChar, out LastChar);
@@ -431,29 +432,6 @@ namespace SaltScript
         /// </summary>
         public static bool AcceptTightExpression(string Text, int Start, out Expression Expression, out int LastChar)
         {
-            // Lambda
-            if (AcceptString(Text, Start, "(", out LastChar))
-            {
-                AcceptWhitespace(Text, LastChar, out LastChar);
-                List<KeyValuePair<Expression, string>> arglist;
-                AcceptArgumentList(Text, LastChar, out arglist, out LastChar);
-                AcceptWhitespace(Text, LastChar, out LastChar);
-                if (AcceptString(Text, LastChar, ")", out LastChar))
-                {
-                    AcceptWhitespace(Text, LastChar, out LastChar);
-                    if (AcceptString(Text, LastChar, "=>", out LastChar))
-                    {
-                        AcceptWhitespace(Text, LastChar, out LastChar);
-                        Expression def;
-                        if (AcceptExpression(Text, LastChar, out def, out LastChar))
-                        {
-                            Expression = new FunctionDefineExpression(arglist, def);
-                            return true;
-                        }
-                    }
-                }
-            }
-
             // Normal
             if (AcceptAtom(Text, Start, out Expression, out LastChar))
             {
@@ -490,8 +468,50 @@ namespace SaltScript
                 return true;
             }
 
+            // Lambda
+            if (AcceptString(Text, Start, "(", out LastChar))
+            {
+                AcceptWhitespace(Text, LastChar, out LastChar);
+                List<KeyValuePair<Expression, string>> arglist;
+                AcceptArgumentList(Text, LastChar, out arglist, out LastChar);
+                AcceptWhitespace(Text, LastChar, out LastChar);
+                if (AcceptString(Text, LastChar, ")", out LastChar))
+                {
+                    AcceptWhitespace(Text, LastChar, out LastChar);
+                    if (AcceptString(Text, LastChar, "=>", out LastChar))
+                    {
+                        AcceptWhitespace(Text, LastChar, out LastChar);
+                        Expression def;
+                        if (AcceptExpression(Text, LastChar, out def, out LastChar))
+                        {
+                            Expression = new FunctionDefineExpression(arglist, def);
+                            return true;
+                        }
+                    }
+                }
+            }
+
             Expression = null;
             return false;
+        }
+
+        /// <summary>
+        /// Parses an expression from a stream.
+        /// </summary>
+        public static ProcedureExpression Parse(System.IO.Stream Stream)
+        {
+            System.IO.StreamReader sr = new System.IO.StreamReader(Stream);
+            string s = sr.ReadToEnd();
+            int nc;
+            ProcedureExpression pe;
+            AcceptWhitespace(s, 0, out nc);
+            AcceptProcedure(s, nc, out pe, out nc);
+            AcceptWhitespace(s, nc, out nc);
+            if (nc != s.Length)
+            {
+                pe = null;
+            }
+            return pe;
         }
 
         /// <summary>
