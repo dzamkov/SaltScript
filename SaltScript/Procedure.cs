@@ -57,11 +57,36 @@ namespace SaltScript
             return this._Statement.Call(Stack);
         }
 
-        public override void TypeCheck(VariableStack<Expression> TypeStack, out Expression TypeSafeExpression, out Expression Type)
+        public override void TypeCheck(
+            VariableStack<Expression> TypeStack,
+            VariableStack<Expression> Stack,
+            out Expression TypeSafeExpression, out Expression Type)
         {
-            TypeSafeExpression = this;
-            Type = null;
-            //throw new NotImplementedException();
+            if (this._ClonedVars != null)
+            {
+                Expression[] typestackappend = new Expression[this._ClonedVars.Length];
+                Expression[] stackappend = new Expression[this._ClonedVars.Length];
+                for (int t = 0; t < this._ClonedVars.Length; t++)
+                {
+                    VariableIndex vi = this._ClonedVars[t];
+                    stackappend[t] = Expression.Lookup(vi, Stack);
+                    typestackappend[t] = TypeStack.Lookup(vi);
+                }
+                Stack = Stack.Append(stackappend);
+                TypeStack = TypeStack.Append(typestackappend);
+            }
+
+            Statement sstatement;
+            Expression returntype;
+            this._Statement.TypeCheck(TypeStack, Stack, out sstatement, out returntype);
+
+            if (returntype == null)
+            {
+                throw new NotImplementedException();
+            }
+
+            TypeSafeExpression = new ProcedureExpression() { _Statement = sstatement, _ClonedVars = this._ClonedVars };
+            Type = returntype;
         }
 
         private VariableIndex[] _ClonedVars;
@@ -104,6 +129,14 @@ namespace SaltScript
         }
 
         /// <summary>
+        /// Insures this statement is type-correct.
+        /// </summary>
+        public abstract void TypeCheck(
+            VariableStack<Expression> TypeStack,
+            VariableStack<Expression> Stack,
+            out Statement TypeSafeStatement, out Expression ReturnType);
+
+        /// <summary>
         /// Calls (runs) the statement with the specified mutable stack. Returns a value if this statement returns.
         /// </summary>
         public abstract Value Call(VariableStack<Value> Stack);
@@ -129,7 +162,6 @@ namespace SaltScript
             ref int NextFreeVariable)
         {
             Dictionary<string, int> vars;
-            int sv;
             int fd = Scope.FunctionalDepth;
             Scope = new Scope() { Parent = Scope, FunctionalDepth = fd, Variables = vars = new Dictionary<string,int>() };
 
@@ -198,6 +230,45 @@ namespace SaltScript
             return null;
         }
 
+        public override void TypeCheck(
+            VariableStack<Expression> TypeStack, 
+            VariableStack<Expression> Stack, 
+            out Statement TypeSafeStatement, out Expression ReturnType)
+        {
+            Expression[] types = new Expression[this._DefinedTypesByStatement.Count];
+            TypeStack = TypeStack.Append(types);
+            Stack = Stack.Append(new Expression[this._DefinedTypesByStatement.Count]);
+
+            Statement[] nsubs = new Statement[this._Substatements.Length];
+
+            ReturnType = null;
+            bool hasreturn = false;
+            for (int t = 0; t < this._Substatements.Length; t++)
+            {
+                KeyValuePair<int, Expression> defineinfo;
+                if (this._DefinedTypesByStatement.TryGetValue(t, out defineinfo))
+                {
+                    types[defineinfo.Key] = defineinfo.Value.Substitute(Stack);
+                }
+
+                Statement s = this._Substatements[t];
+                s.TypeCheck(TypeStack, Stack, out nsubs[t], out ReturnType);
+                if (ReturnType != null)
+                {
+                    if (hasreturn)
+                    {
+                        throw new NotImplementedException();
+                    }
+                    else
+                    {
+                        hasreturn = true;
+                    }
+                }
+            }
+
+            TypeSafeStatement = new CompoundStatement() { _Substatements = nsubs, _DefinedTypesByStatement = this._DefinedTypesByStatement };
+        }
+
         private Dictionary<int, KeyValuePair<int, Expression>> _DefinedTypesByStatement;
         private Statement[] _Substatements;
     }
@@ -217,6 +288,27 @@ namespace SaltScript
         {
             Stack.Modify(this._Variable, this._Value.Evaluate(Stack));
             return null;
+        }
+
+        public override void TypeCheck(
+            VariableStack<Expression> TypeStack, 
+            VariableStack<Expression> Stack, 
+            out Statement TypeSafeStatement, out Expression ReturnType)
+        {
+            Expression sval;
+            Expression valtype;
+            this._Value.TypeCheck(TypeStack, Stack, out sval, out valtype);
+
+            if (Expression.Equivalent(TypeStack.Lookup(this._Variable), valtype.Reduce(Stack.NextIndex)))
+            {
+                Stack.Modify(this._Variable, sval.Substitute(Stack));
+                TypeSafeStatement = new SetStatement(this._Variable, sval);
+                ReturnType = null;
+            }
+            else
+            {
+                throw new NotImplementedException();
+            }
         }
 
         private VariableIndex _Variable;
@@ -247,6 +339,18 @@ namespace SaltScript
             {
                 return this._Value;
             }
+        }
+
+        public override void TypeCheck(
+            VariableStack<Expression> TypeStack, 
+            VariableStack<Expression> Stack, 
+            out Statement TypeSafeStatement, out Expression ReturnType)
+        {
+            Expression sval;
+            Expression valtype;
+            this._Value.TypeCheck(TypeStack, Stack, out sval, out valtype);
+            TypeSafeStatement = new ReturnStatement(sval);
+            ReturnType = valtype;
         }
 
         private Expression _Value;

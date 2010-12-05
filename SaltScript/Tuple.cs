@@ -114,7 +114,10 @@ namespace SaltScript
             }
         }
 
-        public override void TypeCheck(VariableStack<Expression> TypeStack, out Expression TypeSafeExpression, out Expression Type)
+        public override void TypeCheck(
+            VariableStack<Expression> TypeStack,
+            VariableStack<Expression> Stack,
+            out Expression TypeSafeExpression, out Expression Type)
         {
             if (this.Parts != null && this.Parts.Length != 0)
             {
@@ -122,7 +125,7 @@ namespace SaltScript
                 Expression[] stypes = new Expression[this.Parts.Length];
                 for (int t = 0; t < this.Parts.Length; t++)
                 {
-                    this.Parts[t].TypeCheck(TypeStack, out sparts[t], out stypes[t]);
+                    this.Parts[t].TypeCheck(TypeStack, Stack, out sparts[t], out stypes[t]);
                 }
                 TypeSafeExpression = new TupleExpression(sparts);
                 Type = new TupleExpression(stypes);

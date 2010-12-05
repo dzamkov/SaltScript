@@ -66,6 +66,32 @@ namespace SaltScript
         }
 
         /// <summary>
+        /// Looks up or "dereferences" a variable with the given index in the specified stack.
+        /// </summary>
+        public static Expression Lookup(VariableIndex Index, VariableStack<Expression> Stack)
+        {
+            Expression res;
+            if (Stack.Lookup(Index, out res))
+            {
+                VariableExpression ve = res as VariableExpression;
+                if (ve != null)
+                {
+                    if (ve.Index == Index)
+                    {
+                        return ve;
+                    }
+                }
+                
+                // Substitute again until we reach a fixed point.
+                return res.Substitute(Stack);
+            }
+            else
+            {
+                return Expression.Variable(Index);
+            }
+        }
+
+        /// <summary>
         /// Prepares a variable expression based on its name and the scope it's used in. Returns null if the variable is not found.
         /// </summary>
         public static VariableExpression PrepareVariable(string Name, Scope Scope)
@@ -94,7 +120,7 @@ namespace SaltScript
         /// does not guarantee all variables to be removed (some of the substituted expressions may contain variables themselves). The stack may omit
         /// some variables, in which case, they remain unchanged.
         /// </summary>
-        public virtual Expression Substitute(VariableStack<Expression> Variables)
+        public virtual Expression Substitute(VariableStack<Expression> Stack)
         {
             return this;
         }
@@ -103,7 +129,10 @@ namespace SaltScript
         /// Creates a type-safe version of the expression by using conversions where necessary. An exception will
         /// be thrown if this is not possible.
         /// </summary>
-        public abstract void TypeCheck(VariableStack<Expression> TypeStack, out Expression TypeSafeExpression, out Expression Type);
+        public abstract void TypeCheck(
+            VariableStack<Expression> TypeStack, 
+            VariableStack<Expression> Stack,
+            out Expression TypeSafeExpression, out Expression Type);
 
         /// <summary>
         /// Gets the value of the expression if there are no variables dependant on an immediate stack.
@@ -161,7 +190,7 @@ namespace SaltScript
         /// Simplifies the expression, given the last variable index in the current scope. This is should only
         /// be used on type-checked expressions.
         /// </summary>
-        public virtual Expression Reduce(VariableIndex LastIndex)
+        public virtual Expression Reduce(VariableIndex NextIndex)
         {
             return this;
         }
@@ -259,7 +288,10 @@ namespace SaltScript
 
         private class _UniversalType : Expression
         {
-            public override void TypeCheck(VariableStack<Expression> TypeStack, out Expression TypeSafeExpression, out Expression Type)
+            public override void TypeCheck(
+                VariableStack<Expression> TypeStack, 
+                VariableStack<Expression> Stack,
+                out Expression TypeSafeExpression, out Expression Type)
             {
                 TypeSafeExpression = this;
                 Type = this;
@@ -292,7 +324,10 @@ namespace SaltScript
             return this;
         }
 
-        public override void TypeCheck(VariableStack<Expression> TypeStack, out Expression TypeSafeExpression, out Expression Type)
+        public override void TypeCheck(
+            VariableStack<Expression> TypeStack, 
+            VariableStack<Expression> Stack,
+            out Expression TypeSafeExpression, out Expression Type)
         {
             TypeSafeExpression = this;
             Type = this.Datum.Type;
@@ -319,20 +354,15 @@ namespace SaltScript
             return Stack.Lookup(this.Index);
         }
 
-        public override Expression Substitute(VariableStack<Expression> Variables)
+        public override Expression Substitute(VariableStack<Expression> Stack)
         {
-            Expression e;
-            if (Variables.Lookup(this.Index, out e))
-            {
-                return e;
-            }
-            else
-            {
-                return this;
-            }
+            return Expression.Lookup(this.Index, Stack);
         }
 
-        public override void TypeCheck(VariableStack<Expression> TypeStack, out Expression TypeSafeExpression, out Expression Type)
+        public override void TypeCheck(
+            VariableStack<Expression> TypeStack,
+            VariableStack<Expression> Stack,
+            out Expression TypeSafeExpression, out Expression Type)
         {
             TypeSafeExpression = this;
             Type = TypeStack.Lookup(this.Index);
@@ -377,13 +407,16 @@ namespace SaltScript
             return new FunctionCallExpression(this.Function.Substitute(Variables), this.Argument.Substitute(Variables));
         }
 
-        public override void TypeCheck(VariableStack<Expression> TypeStack, out Expression TypeSafeExpression, out Expression Type)
+        public override void TypeCheck(
+            VariableStack<Expression> TypeStack,
+            VariableStack<Expression> Stack,
+            out Expression TypeSafeExpression, out Expression Type)
         {
-            VariableIndex li = TypeStack.LastIndex;
+            VariableIndex li = TypeStack.NextIndex;
 
             Expression sfunc;
             Expression functype;
-            this.Function.TypeCheck(TypeStack, out sfunc, out functype);
+            this.Function.TypeCheck(TypeStack, Stack, out sfunc, out functype);
 
             functype = functype.Reduce(li);
             FunctionTypeExpression fte = functype as FunctionTypeExpression;
@@ -394,7 +427,7 @@ namespace SaltScript
 
             Expression sarg;
             Expression argtype;
-            this.Argument.TypeCheck(TypeStack, out sarg, out argtype);
+            this.Argument.TypeCheck(TypeStack, Stack, out sarg, out argtype);
 
             if (!Expression.Equivalent(argtype.Reduce(li), fte.ArgumentType))
             {
@@ -437,7 +470,10 @@ namespace SaltScript
             return new FunctionTypeExpression(this.ArgumentType.Substitute(Variables), this.ReturnTypeFunction.Substitute(Variables));
         }
 
-        public override void TypeCheck(VariableStack<Expression> TypeStack, out Expression TypeSafeExpression, out Expression Type)
+        public override void TypeCheck(
+            VariableStack<Expression> TypeStack,
+            VariableStack<Expression> Stack,
+            out Expression TypeSafeExpression, out Expression Type)
         {
             throw new NotImplementedException();
         }
@@ -468,11 +504,17 @@ namespace SaltScript
             return new ExpressionFunction(Stack, this.Function);
         }
 
-        public override void TypeCheck(VariableStack<Expression> TypeStack, out Expression TypeSafeExpression, out Expression Type)
+        public override void TypeCheck(
+            VariableStack<Expression> TypeStack,
+            VariableStack<Expression> Stack,
+            out Expression TypeSafeExpression, out Expression Type)
         {
             Expression sifunc;
             Expression itype;
-            this.Function.TypeCheck(TypeStack.AppendHigherFunction(new Expression[] { this.ArgumentType }), out sifunc, out itype);
+            this.Function.TypeCheck(
+                TypeStack.AppendHigherFunction(new Expression[] { this.ArgumentType }), 
+                Stack.AppendHigherFunction(new Expression[] { Expression.Variable(Stack.NextIndex) }), 
+                out sifunc, out itype);
             Type = new FunctionTypeExpression(this.ArgumentType, itype);
             TypeSafeExpression = new FunctionDefineExpression(this.ArgumentType, sifunc);
         }
@@ -503,7 +545,10 @@ namespace SaltScript
             this.Property = Property;
         }
 
-        public override void TypeCheck(VariableStack<Expression> TypeStack, out Expression TypeSafeExpression, out Expression Type)
+        public override void TypeCheck(
+            VariableStack<Expression> TypeStack,
+            VariableStack<Expression> Stack,
+            out Expression TypeSafeExpression, out Expression Type)
         {
             throw new NotImplementedException();
         }
@@ -528,6 +573,34 @@ namespace SaltScript
         {
             this.StackIndex = StackIndex;
             this.FunctionalDepth = FunctionalDepth;
+        }
+
+        public static bool operator ==(VariableIndex A, VariableIndex B)
+        {
+            return A.StackIndex == B.StackIndex && A.FunctionalDepth == B.FunctionalDepth;
+        }
+
+        public static bool operator !=(VariableIndex A, VariableIndex B)
+        {
+            return A.StackIndex != B.StackIndex || A.FunctionalDepth != B.FunctionalDepth;
+        }
+
+        public override bool Equals(object obj)
+        {
+            VariableIndex? vi = obj as VariableIndex?;
+            if (vi != null)
+            {
+                return this == vi.Value;
+            }
+            else
+            {
+                return false;
+            }
+        }
+
+        public override int GetHashCode()
+        {
+            return this.StackIndex ^ this.FunctionalDepth;
         }
 
         /// <summary>

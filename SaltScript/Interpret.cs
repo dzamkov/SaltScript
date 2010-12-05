@@ -93,9 +93,23 @@ namespace SaltScript
         }
 
         /// <summary>
+        /// Creates a stack that is empty up until the specified index, after which it is undefined.
+        /// </summary>
+        public static VariableStack<TValue> Empty(VariableIndex Index)
+        {
+            return new VariableStack<TValue>()
+            {
+                _FunctionalDepth = Index.FunctionalDepth,
+                _StartIndex = Index.StackIndex,
+                _Values = new TValue[0],
+                _Lower = null
+            };
+        }
+
+        /// <summary>
         /// Gets the index of the variable after the last in the stack.
         /// </summary>
-        public VariableIndex LastIndex
+        public VariableIndex NextIndex
         {
             get
             {
@@ -314,7 +328,7 @@ namespace SaltScript
             // Prepare
             Expression exp = Expression.Prepare(ParsedExpression, scope, Input);
             Expression exptype;
-            exp.TypeCheck(typestack, out exp, out exptype);
+            exp.TypeCheck(typestack, VariableStack<Expression>.Empty(typestack.NextIndex), out exp, out exptype);
 
             // Evaluate
             return new Datum(exp.Evaluate(datastack), exptype);
