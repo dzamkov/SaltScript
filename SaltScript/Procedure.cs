@@ -24,20 +24,20 @@ namespace SaltScript
             // Prepare cloned variable list
             Dictionary<string, int> clonemap = new Dictionary<string, int>();
             List<VariableIndex> rclonemap = new List<VariableIndex>();
-            int firstfree = Scope.NextFreeIndex.StackIndex;
+            int firstfree = Scope.NextFreeIndex;
             int nextfree = firstfree;
             Statement.PrepareClonedVariables(s, Scope, ref nextfree, clonemap, rclonemap);
             if (clonemap.Count > 0)
             {
                 pe._ClonedVars = rclonemap.ToArray();
-                Scope = new Scope() { Parent = Scope, FunctionalDepth = Scope.FunctionalDepth, Variables = clonemap };
+                Scope = new Scope() { Parent = Scope, FunctionalDepth = Scope.FunctionalDepth, Variables = clonemap, NextFreeIndex = nextfree };
             }
 
             // Prepare statements
             Parser.CompoundStatement cs = s as Parser.CompoundStatement;
             if(cs != null)
             {
-                pe._Statement = CompoundStatement.Prepare(cs, Scope, Input, ref nextfree);
+                pe._Statement = CompoundStatement.Prepare(cs, Scope, Input);
                 return pe;
             }
 
@@ -158,12 +158,11 @@ namespace SaltScript
         public static CompoundStatement Prepare(
             Parser.CompoundStatement CompoundStatement,
             Scope Scope, 
-            ProgramInput Input, 
-            ref int NextFreeVariable)
+            ProgramInput Input)
         {
             Dictionary<string, int> vars;
             int fd = Scope.FunctionalDepth;
-            Scope = new Scope() { Parent = Scope, FunctionalDepth = fd, Variables = vars = new Dictionary<string,int>() };
+            Scope = new Scope() { Parent = Scope, FunctionalDepth = fd, Variables = vars = new Dictionary<string,int>(), NextFreeIndex = Scope.NextFreeIndex };
 
             CompoundStatement cs = new CompoundStatement();
             cs._DefinedTypesByStatement = new Dictionary<int, KeyValuePair<int, Expression>>();
@@ -178,9 +177,9 @@ namespace SaltScript
                 if (ds != null)
                 {
                     cs._DefinedTypesByStatement.Add(t, new KeyValuePair<int, Expression>(ss, Expression.Prepare(ds.Type, Scope, Input)));
-                    cs._Substatements[t] = new SetStatement(new VariableIndex(NextFreeVariable, fd), Expression.Prepare(ds.Value, Scope, Input));
-                    vars.Add(ds.Variable, NextFreeVariable);
-                    NextFreeVariable++; ss++;
+                    cs._Substatements[t] = new SetStatement(new VariableIndex(Scope.NextFreeIndex, fd), Expression.Prepare(ds.Value, Scope, Input));
+                    vars.Add(ds.Variable, Scope.NextFreeIndex);
+                    Scope.NextFreeIndex++; ss++; 
                     continue;
                 }
 

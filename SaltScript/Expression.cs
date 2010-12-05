@@ -62,6 +62,59 @@ namespace SaltScript
                 return new AccessorExpression(Prepare(ae.Object, Scope, Input), ae.Property);
             }
 
+            // Function definition
+            Parser.FunctionDefineExpression fde = Expression as Parser.FunctionDefineExpression;
+            if (fde != null)
+            {
+                // 0 arg function
+                if (fde.Arguments.Count == 0)
+                {
+                    return new FunctionDefineExpression(TupleExpression.Empty, Prepare(fde.Definition, Scope, Input));
+                }
+
+                // 1 arg function
+                Dictionary<string, int> vars;
+                Scope nscope = new Scope()
+                {
+                    FunctionalDepth = Scope.FunctionalDepth + 1,
+                    NextFreeIndex = 1,
+                    Variables = vars = new Dictionary<string, int>(),
+                    Parent = Scope
+                };
+                if (fde.Arguments.Count == 1)
+                {
+                    var kvp = fde.Arguments[0];
+                    if (kvp.Value != null)
+                    {
+                        vars.Add(kvp.Value, 0);
+                    }
+                    return new FunctionDefineExpression(Prepare(kvp.Key, Scope, Input), Prepare(fde.Definition, nscope, Input));
+                }
+
+                // 2+ arg function
+                Expression[] types = new Expression[fde.Arguments.Count];
+                for (int t = 0; t < types.Length; t++)
+                {
+                    types[t] = Prepare(fde.Arguments[t].Key, Scope, Input);
+                }
+
+                nscope.NextFreeIndex += types.Length;
+                for (int t = 0; t < fde.Arguments.Count; t++)
+                {
+                    string argname = fde.Arguments[t].Value;
+                    if (argname != null)
+                    {
+                        vars.Add(argname, t + 1);
+                    }
+                }
+
+                return new FunctionDefineExpression(
+                    SaltScript.Expression.Tuple(types),
+                    SaltScript.Expression.BreakTuple(
+                        SaltScript.Expression.Variable(new VariableIndex(0, nscope.FunctionalDepth)), 
+                    Prepare(fde.Definition, nscope, Input)));
+            }
+
             throw new NotImplementedException();
         }
 
@@ -187,6 +240,71 @@ namespace SaltScript
         }
 
         /// <summary>
+        /// Creates an expression that produces a tuple with one item.
+        /// </summary>
+        public static TupleExpression Tuple(Expression A)
+        {
+            return new TupleExpression(new Expression[] { A });
+        }
+
+        /// <summary>
+        /// Creates an expression that produces a tuple with two items.
+        /// </summary>
+        public static TupleExpression Tuple(Expression A, Expression B)
+        {
+            return new TupleExpression(new Expression[] { A, B });
+        }
+
+        /// <summary>
+        /// Creates an expression that produces a tuple with three items.
+        /// </summary>
+        public static TupleExpression Tuple(Expression A, Expression B, Expression C)
+        {
+            return new TupleExpression(new Expression[] { A, B, C });
+        }
+
+        /// <summary>
+        /// Creates an expression with a varying amount of items.
+        /// </summary>
+        public static TupleExpression Tuple(Expression[] Items)
+        {
+            return new TupleExpression(Items);
+        }
+
+        /// <summary>
+        /// Creates an expression that causes the parts in tuple to be used in the stack of the inner expression.
+        /// </summary>
+        public static TupleBreakExpression BreakTuple(Expression Tuple, Expression Inner)
+        {
+            return new TupleBreakExpression(Tuple, Inner);
+        }
+
+        /// <summary>
+        /// Creates a
+        /// </summary>
+        public static VariableExpression Variable(VariableIndex Index)
+        {
+            return new VariableExpression(Index);
+        }
+
+        /// <summary>
+        /// Gets an expression that evaluates to the universal type, the type of all other types, including itself.
+        /// </summary>
+        public static readonly Expression UniversalType = new _UniversalType();
+
+        private class _UniversalType : Expression
+        {
+            public override void TypeCheck(
+                VariableStack<Expression> TypeStack,
+                VariableStack<Expression> Stack,
+                out Expression TypeSafeExpression, out Expression Type)
+            {
+                TypeSafeExpression = this;
+                Type = this;
+            }
+        }
+
+        /// <summary>
         /// Simplifies the expression, given the last variable index in the current scope. This is should only
         /// be used on type-checked expressions.
         /// </summary>
@@ -239,63 +357,6 @@ namespace SaltScript
             }
 
             return false;
-        }
-
-        /// <summary>
-        /// Creates an expression that produces a tuple with one item.
-        /// </summary>
-        public static TupleExpression Tuple(Expression A)
-        {
-            return new TupleExpression(new Expression[] { A });
-        }
-
-        /// <summary>
-        /// Creates an expression that produces a tuple with two items.
-        /// </summary>
-        public static TupleExpression Tuple(Expression A, Expression B)
-        {
-            return new TupleExpression(new Expression[] { A, B });
-        }
-
-        /// <summary>
-        /// Creates an expression that produces a tuple with three items.
-        /// </summary>
-        public static TupleExpression Tuple(Expression A, Expression B, Expression C)
-        {
-            return new TupleExpression(new Expression[] { A, B, C });
-        }
-
-        /// <summary>
-        /// Creates an expression with a varying amount of items.
-        /// </summary>
-        public static TupleExpression Tuple(Expression[] Items)
-        {
-            return new TupleExpression(Items);
-        }
-
-        /// <summary>
-        /// Creates a
-        /// </summary>
-        public static VariableExpression Variable(VariableIndex Index)
-        {
-            return new VariableExpression(Index);
-        }
-
-        /// <summary>
-        /// Gets an expression that evaluates to the universal type, the type of all other types, including itself.
-        /// </summary>
-        public static readonly Expression UniversalType = new _UniversalType();
-
-        private class _UniversalType : Expression
-        {
-            public override void TypeCheck(
-                VariableStack<Expression> TypeStack, 
-                VariableStack<Expression> Stack,
-                out Expression TypeSafeExpression, out Expression Type)
-            {
-                TypeSafeExpression = this;
-                Type = this;
-            }
         }
     }
 
@@ -496,6 +557,7 @@ namespace SaltScript
     {
         public FunctionDefineExpression(Expression ArgumentType, Expression Function)
         {
+            this.ArgumentType = ArgumentType;
             this.Function = Function;
         }
 
@@ -513,7 +575,7 @@ namespace SaltScript
             Expression itype;
             this.Function.TypeCheck(
                 TypeStack.AppendHigherFunction(new Expression[] { this.ArgumentType }), 
-                Stack.AppendHigherFunction(new Expression[] { Expression.Variable(Stack.NextIndex) }), 
+                Stack.AppendHigherFunction(new Expression[] { Expression.Variable(new VariableIndex(0, Stack.NextIndex.FunctionalDepth + 1)) }), 
                 out sifunc, out itype);
             Type = new FunctionTypeExpression(this.ArgumentType, itype);
             TypeSafeExpression = new FunctionDefineExpression(this.ArgumentType, sifunc);

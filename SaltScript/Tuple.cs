@@ -147,4 +147,85 @@ namespace SaltScript
         /// </summary>
         public Expression[] Parts;
     }
+
+    /// <summary>
+    /// An expression that causes a tuple to be split into several variables in a subordinate expression.
+    /// </summary>
+    public class TupleBreakExpression : Expression
+    {
+        public TupleBreakExpression(Expression Tuple, Expression InnerExpression)
+        {
+            this.SourceTuple = Tuple;
+            this.InnerExpression = InnerExpression;
+        }
+
+        public override Value Evaluate(VariableStack<Value> Stack)
+        {
+            TupleValue tuple = (TupleValue)this.SourceTuple.Evaluate(Stack);
+            if (tuple.Values != null)
+            {
+                return this.InnerExpression.Evaluate(Stack.Append(tuple.Values));
+            }
+            else
+            {
+                return this.InnerExpression.Evaluate(Stack);
+            }
+        }
+
+        public override void TypeCheck(
+            VariableStack<Expression> TypeStack, 
+            VariableStack<Expression> Stack, 
+            out Expression TypeSafeExpression, out Expression Type)
+        {
+            Expression stuple;
+            Expression tupletype;
+            this.SourceTuple.TypeCheck(TypeStack, Stack, out stuple, out tupletype);
+
+            tupletype = tupletype.Reduce(Stack.NextIndex);
+            stuple = stuple.Reduce(Stack.NextIndex);
+
+            TupleExpression te = tupletype as TupleExpression;
+            if (te == null)
+            {
+                throw new NotImplementedException();
+            }
+
+            Expression[] stackappend;
+            TupleExpression se = stuple as TupleExpression;
+            if (se != null)
+            {
+                stackappend = se.Parts ?? new Expression[0];
+            }
+            else
+            {
+                stackappend = new Expression[te.Parts.Length];
+                VariableIndex ni = Stack.NextIndex;
+                for (int t = 0; t < te.Parts.Length; t++)
+                {
+                    stackappend[t] = Expression.Variable(new VariableIndex(ni.StackIndex + t, ni.FunctionalDepth));
+                }
+            }
+
+            Expression si;
+            Expression itype;
+            this.InnerExpression.TypeCheck(
+                TypeStack.Append(te.Parts ?? new Expression[0]),
+                Stack.Append(stackappend),
+                out si,
+                out itype);
+
+            TypeSafeExpression = new TupleBreakExpression(stuple, si);
+            Type = itype;
+        }
+
+        /// <summary>
+        /// The tuple to "break".
+        /// </summary>
+        public Expression SourceTuple;
+
+        /// <summary>
+        /// The expression where the tuple's parts can be accessed.
+        /// </summary>
+        public Expression InnerExpression;
+    }
 }

@@ -39,22 +39,7 @@ namespace SaltScript
             }
         }
 
-        /// <summary>
-        /// Gets the next unassigned variable index.
-        /// </summary>
-        public VariableIndex NextFreeIndex
-        {
-            get
-            {
-                int max = 0;
-                foreach (int v in this.Variables.Values)
-                {
-                    max = max < v ? v : max;
-                }
-                return new VariableIndex(max + 1, this.FunctionalDepth);
-            }
-        }
-
+        
         /// <summary>
         /// Parent scope for this scope. Variables in the parent scope can be used in a more immediate scope.
         /// </summary>
@@ -64,6 +49,11 @@ namespace SaltScript
         /// Table of variable names and their relative stack indices.
         /// </summary>
         public Dictionary<string, int> Variables;
+
+        /// <summary>
+        /// The next unassigned variable index.
+        /// </summary>
+        public int NextFreeIndex;
 
         /// <summary>
         /// Functional depth of this scope.
@@ -286,7 +276,7 @@ namespace SaltScript
                 types[t] = this._RootVariables[t].Type;
                 varmap.Add(this._RootVariables[t].Name, t);
             }
-            Scope = new Scope() { FunctionalDepth = 0, Variables = varmap };
+            Scope = new Scope() { FunctionalDepth = 0, Variables = varmap, NextFreeIndex = vals.Length };
             Stack = new VariableStack<Value>(vals);
             TypeStack = new VariableStack<Expression>(types);
         }

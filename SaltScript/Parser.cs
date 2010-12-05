@@ -390,6 +390,43 @@ namespace SaltScript
         }
 
         /// <summary>
+        /// Gets a list of comma-delimited named and typed arguments. The name of an argument may be omitted.
+        /// </summary>
+        public static void AcceptArgumentList(string Text, int Start, out List<KeyValuePair<Expression, string>> Arguments, out int LastChar)
+        {
+            Arguments = new List<KeyValuePair<Expression, string>>();
+            int nc = LastChar = Start;
+            while (true)
+            {
+                Expression type;
+                if (AcceptExpression(Text, nc, out type, out nc))
+                {
+                    LastChar = nc;
+                    AcceptWhitespace(Text, nc, out nc);
+
+                    string name;
+                    if (AcceptWord(Text, nc, out name, out nc) && ValidWord(name))
+                    {
+                        LastChar = nc;
+                        Arguments.Add(new KeyValuePair<Expression, string>(type, name));
+                        AcceptWhitespace(Text, nc, out nc);
+                    }
+                    else
+                    {
+                        Arguments.Add(new KeyValuePair<Expression, string>(type, null));
+                    }
+
+                    if (AcceptString(Text, nc, ",", out nc))
+                    {
+                        AcceptWhitespace(Text, nc, out nc);
+                        continue;
+                    }
+                }
+                break;
+            }
+        }
+
+        /// <summary>
         /// Parses an expression that can not be broken apart with an operator.
         /// </summary>
         public static bool AcceptTightExpression(string Text, int Start, out Expression Expression, out int LastChar)
@@ -506,6 +543,30 @@ namespace SaltScript
         /// </summary>
         public static bool AcceptExpression(string Text, int Start, out Expression Expression, out int LastChar)
         {
+            // Lambda
+            if (AcceptString(Text, Start, "(", out LastChar))
+            {
+                AcceptWhitespace(Text, LastChar, out LastChar);
+                List<KeyValuePair<Expression, string>> arglist;
+                AcceptArgumentList(Text, LastChar, out arglist, out LastChar);
+                AcceptWhitespace(Text, LastChar, out LastChar);
+                if (AcceptString(Text, LastChar, ")", out LastChar))
+                {
+                    AcceptWhitespace(Text, LastChar, out LastChar);
+                    if (AcceptString(Text, LastChar, "=>", out LastChar))
+                    {
+                        AcceptWhitespace(Text, LastChar, out LastChar);
+                        Expression def;
+                        if (AcceptExpression(Text, LastChar, out def, out LastChar))
+                        {
+                            Expression = new FunctionDefineExpression(arglist, def);
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            // Normal operator/expression chain
             _OperatorTree curtree;
             if (AcceptTightExpression(Text, Start, out Expression, out LastChar))
             {
@@ -779,6 +840,21 @@ namespace SaltScript
 
             public Expression Object;
             public string Property;
+        }
+
+        /// <summary>
+        /// An expression that defines a function.
+        /// </summary>
+        public class FunctionDefineExpression : Expression
+        {
+            public FunctionDefineExpression(List<KeyValuePair<Expression, string>> Arguments, Expression Definition)
+            {
+                this.Arguments = Arguments;
+                this.Definition = Definition;
+            }
+
+            public List<KeyValuePair<Expression, string>> Arguments;
+            public Expression Definition;
         }
 
         /// <summary>

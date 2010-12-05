@@ -115,6 +115,7 @@ namespace SaltScript
     {
         public ExpressionFunction(VariableStack<Value> BaseStack, Expression Expression)
         {
+            this.BaseStack = BaseStack;
             this.Expression = Expression;
         }
 
