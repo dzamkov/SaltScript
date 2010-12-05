@@ -12,6 +12,7 @@ namespace SaltScript
         /// </summary>
         public static void Main(string[] args)
         {
+            //Console.ReadKey();
             Parser.ProcedureExpression pe = Parser.Parse(File.OpenRead("test.salt"));
             if (pe != null)
             {

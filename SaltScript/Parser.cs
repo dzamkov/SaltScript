@@ -360,6 +360,34 @@ namespace SaltScript
                 return true;
             }
 
+            // Alternate lambda syntax
+            if (AcceptString(Text, Start, "function", out LastChar))
+            {
+                AcceptWhitespace(Text, LastChar, out LastChar);
+                if (AcceptString(Text, LastChar, "(", out LastChar))
+                {
+                    AcceptWhitespace(Text, LastChar, out LastChar);
+                    List<KeyValuePair<Expression, string>> arglist;
+                    AcceptArgumentList(Text, LastChar, out arglist, out LastChar);
+                    AcceptWhitespace(Text, LastChar, out LastChar);
+                    if (AcceptString(Text, LastChar, ")", out LastChar))
+                    {
+                        AcceptWhitespace(Text, LastChar, out LastChar);
+                        if (AcceptString(Text, LastChar, "{", out LastChar))
+                        {
+                            ProcedureExpression procedure;
+                            AcceptWhitespace(Text, LastChar, out LastChar);
+                            AcceptProcedure(Text, LastChar, out procedure, out LastChar);
+                            AcceptWhitespace(Text, LastChar, out LastChar);
+                            if (AcceptString(Text, LastChar, "}", out LastChar))
+                            {
+                                Expression = new FunctionDefineExpression(arglist, procedure);
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
 
             Expression = null;
             return false;
