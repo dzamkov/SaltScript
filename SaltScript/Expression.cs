@@ -288,23 +288,6 @@ namespace SaltScript
         }
 
         /// <summary>
-        /// Gets an expression that evaluates to the universal type, the type of all other types, including itself.
-        /// </summary>
-        public static readonly Expression UniversalType = new _UniversalType();
-
-        private class _UniversalType : Expression
-        {
-            public override void TypeCheck(
-                VariableStack<Expression> TypeStack,
-                VariableStack<Expression> Stack,
-                out Expression TypeSafeExpression, out Expression Type)
-            {
-                TypeSafeExpression = this;
-                Type = this;
-            }
-        }
-
-        /// <summary>
         /// Simplifies the expression, given the last variable index in the current scope. This is should only
         /// be used on type-checked expressions.
         /// </summary>

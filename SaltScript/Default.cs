@@ -111,8 +111,8 @@ namespace SaltScript
         {
             public _Input()
             {
-                this.AddRootVariable("type", Expression.UniversalType, null);
-                this.IntType = this.AddRootVariable("int", Expression.UniversalType, null);
+                this.TypeType = this.AddUniversalType("type", null);
+                this.IntType = this.AddRootVariable("int", this.TypeType, null);
                 this.AddBinaryFunction("+", this.IntType, this.IntType, this.IntType, (x, y) => MakeIntValue(GetIntValue(x) + GetIntValue(y)));
                 this.AddBinaryFunction("-", this.IntType, this.IntType, this.IntType, (x, y) => MakeIntValue(GetIntValue(x) - GetIntValue(y)));
                 this.AddBinaryFunction("*", this.IntType, this.IntType, this.IntType, (x, y) => MakeIntValue(GetIntValue(x) * GetIntValue(y)));
@@ -142,6 +142,14 @@ namespace SaltScript
                 return MakeIntValue((int)Value);
             }
 
+            public override Expression UniversalType
+            {
+                get
+                {
+                    return this.TypeType;
+                }
+            }
+
             public override Expression IntegerLiteralType
             {
                 get
@@ -150,7 +158,8 @@ namespace SaltScript
                 }
             }
 
-            private Expression IntType;
+            public Expression TypeType;
+            public Expression IntType;
         }
     }
 }

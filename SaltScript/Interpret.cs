@@ -241,6 +241,11 @@ namespace SaltScript
         /// Gets the type integer literals are assigned with.
         /// </summary>
         public abstract Expression IntegerLiteralType { get; }
+        
+        /// <summary>
+        /// Gets the universal type (type assigned to all other types).
+        /// </summary>
+        public abstract Expression UniversalType { get; }
 
         /// <summary>
         /// Gets the value for the specified integer literal.
@@ -260,6 +265,22 @@ namespace SaltScript
                 Value = Value
             });
             return Expression.Variable(new VariableIndex(i, 0));
+        }
+
+        /// <summary>
+        /// Adds the universal type to the root scope. This variable is unique because it is its own type.
+        /// </summary>
+        protected Expression AddUniversalType(string Name, Value Value)
+        {
+            int i = this._RootVariables.Count;
+            Expression exp = Expression.Variable(new VariableIndex(i, 0));
+            this._RootVariables.Add(new _RootVariable()
+            {
+                Name = Name,
+                Type = exp,
+                Value = Value
+            });
+            return exp;
         }
 
         /// <summary>

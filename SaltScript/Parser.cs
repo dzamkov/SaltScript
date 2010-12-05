@@ -431,6 +431,30 @@ namespace SaltScript
         /// </summary>
         public static bool AcceptTightExpression(string Text, int Start, out Expression Expression, out int LastChar)
         {
+            // Lambda
+            if (AcceptString(Text, Start, "(", out LastChar))
+            {
+                AcceptWhitespace(Text, LastChar, out LastChar);
+                List<KeyValuePair<Expression, string>> arglist;
+                AcceptArgumentList(Text, LastChar, out arglist, out LastChar);
+                AcceptWhitespace(Text, LastChar, out LastChar);
+                if (AcceptString(Text, LastChar, ")", out LastChar))
+                {
+                    AcceptWhitespace(Text, LastChar, out LastChar);
+                    if (AcceptString(Text, LastChar, "=>", out LastChar))
+                    {
+                        AcceptWhitespace(Text, LastChar, out LastChar);
+                        Expression def;
+                        if (AcceptExpression(Text, LastChar, out def, out LastChar))
+                        {
+                            Expression = new FunctionDefineExpression(arglist, def);
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            // Normal
             if (AcceptAtom(Text, Start, out Expression, out LastChar))
             {
                 int nc = 0; 
@@ -543,29 +567,6 @@ namespace SaltScript
         /// </summary>
         public static bool AcceptExpression(string Text, int Start, out Expression Expression, out int LastChar)
         {
-            // Lambda
-            if (AcceptString(Text, Start, "(", out LastChar))
-            {
-                AcceptWhitespace(Text, LastChar, out LastChar);
-                List<KeyValuePair<Expression, string>> arglist;
-                AcceptArgumentList(Text, LastChar, out arglist, out LastChar);
-                AcceptWhitespace(Text, LastChar, out LastChar);
-                if (AcceptString(Text, LastChar, ")", out LastChar))
-                {
-                    AcceptWhitespace(Text, LastChar, out LastChar);
-                    if (AcceptString(Text, LastChar, "=>", out LastChar))
-                    {
-                        AcceptWhitespace(Text, LastChar, out LastChar);
-                        Expression def;
-                        if (AcceptExpression(Text, LastChar, out def, out LastChar))
-                        {
-                            Expression = new FunctionDefineExpression(arglist, def);
-                            return true;
-                        }
-                    }
-                }
-            }
-
             // Normal operator/expression chain
             _OperatorTree curtree;
             if (AcceptTightExpression(Text, Start, out Expression, out LastChar))
