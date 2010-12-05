@@ -521,6 +521,11 @@ namespace SaltScript
             this.ReturnTypeFunction = ReturnTypeFunction;
         }
 
+        public override Expression Reduce(VariableIndex NextIndex)
+        {
+            return new FunctionTypeExpression(this.ArgumentType.Reduce(NextIndex), this.ReturnTypeFunction.Reduce(NextIndex));
+        }
+
         public override Value Evaluate(VariableStack<Value> Stack)
         {
             return null;
@@ -577,7 +582,7 @@ namespace SaltScript
                 TypeStack.AppendHigherFunction(new Expression[] { this.ArgumentType }), 
                 Stack.AppendHigherFunction(new Expression[] { Expression.Variable(new VariableIndex(0, Stack.NextIndex.FunctionalDepth + 1)) }), 
                 out sifunc, out itype);
-            Type = new FunctionTypeExpression(this.ArgumentType, itype);
+            Type = Expression.SimpleFunctionType(this.ArgumentType, itype);
             TypeSafeExpression = new FunctionDefineExpression(this.ArgumentType, sifunc);
         }
 
