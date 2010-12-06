@@ -66,56 +66,78 @@ namespace SaltScript
             Parser.FunctionDefineExpression fde = Expression as Parser.FunctionDefineExpression;
             if (fde != null)
             {
-                // 0 arg function
-                if (fde.Arguments.Count == 0)
-                {
-                    return new FunctionDefineExpression(TupleExpression.Empty, Prepare(fde.Definition, Scope, Input));
-                }
+                Expression argtype;
+                Expression inner;
+                _PrepareLambda(fde.Arguments, fde.Definition, Scope, Input, out argtype, out inner);
+                return new FunctionDefineExpression(argtype, inner);
+            }
 
-                // 1 arg function
-                Dictionary<string, int> vars;
-                Scope nscope = new Scope()
-                {
-                    FunctionalDepth = Scope.FunctionalDepth + 1,
-                    NextFreeIndex = 1,
-                    Variables = vars = new Dictionary<string, int>(),
-                    Parent = Scope
-                };
-                if (fde.Arguments.Count == 1)
-                {
-                    var kvp = fde.Arguments[0];
-                    if (kvp.Value != null)
-                    {
-                        vars.Add(kvp.Value, 0);
-                    }
-                    return new FunctionDefineExpression(Prepare(kvp.Key, Scope, Input), Prepare(fde.Definition, nscope, Input));
-                }
-
-                // 2+ arg function
-                Expression[] types = new Expression[fde.Arguments.Count];
-                for (int t = 0; t < types.Length; t++)
-                {
-                    types[t] = Prepare(fde.Arguments[t].Key, Scope, Input);
-                }
-
-                nscope.NextFreeIndex += types.Length;
-                for (int t = 0; t < fde.Arguments.Count; t++)
-                {
-                    string argname = fde.Arguments[t].Value;
-                    if (argname != null)
-                    {
-                        vars.Add(argname, t + 1);
-                    }
-                }
-
-                return new FunctionDefineExpression(
-                    SaltScript.Expression.Tuple(types),
-                    SaltScript.Expression.BreakTuple(
-                        SaltScript.Expression.Variable(new VariableIndex(0, nscope.FunctionalDepth)), 
-                    Prepare(fde.Definition, nscope, Input)));
+            // Function type
+            Parser.FunctionTypeExpression fte = Expression as Parser.FunctionTypeExpression;
+            if (fte != null)
+            {
+                // Notice that this is almost exactly the same as a function definition? weird type system, eh?
+                Expression argtype;
+                Expression inner;
+                _PrepareLambda(fte.ArgumentTypes, fte.ReturnType, Scope, Input, out argtype, out inner);
+                return new FunctionTypeExpression(argtype, new FunctionDefineExpression(argtype, inner));
             }
 
             throw new NotImplementedException();
+        }
+
+        private static void _PrepareLambda(
+            List<KeyValuePair<Parser.Expression, string>> Arguments,
+            Parser.Expression Inner, Scope Scope, ProgramInput Input,
+            out Expression ArgumentType, out Expression PreparedInner)
+        {
+            // 0 arg function
+            if (Arguments.Count == 0)
+            {
+                ArgumentType = TupleExpression.Empty;
+                PreparedInner = Prepare(Inner, Scope, Input);
+                return;
+            }
+
+            // 1 arg function
+            Dictionary<string, int> vars;
+            Scope nscope = new Scope()
+            {
+                FunctionalDepth = Scope.FunctionalDepth + 1,
+                NextFreeIndex = 1,
+                Variables = vars = new Dictionary<string, int>(),
+                Parent = Scope
+            };
+            if (Arguments.Count == 1)
+            {
+                var kvp = Arguments[0];
+                if (kvp.Value != null)
+                {
+                    vars.Add(kvp.Value, 0);
+                }
+                ArgumentType = Prepare(kvp.Key, Scope, Input);
+                PreparedInner = Prepare(Inner, nscope, Input);
+                return;
+            }
+
+            // 2+ arg function
+            Expression[] types = new Expression[Arguments.Count];
+            for (int t = 0; t < types.Length; t++)
+            {
+                types[t] = Prepare(Arguments[t].Key, Scope, Input);
+            }
+
+            nscope.NextFreeIndex += types.Length;
+            for (int t = 0; t < Arguments.Count; t++)
+            {
+                string argname = Arguments[t].Value;
+                if (argname != null)
+                {
+                    vars.Add(argname, t + 1);
+                }
+            }
+            ArgumentType = Expression.Tuple(types);
+            PreparedInner = Expression.BreakTuple(Expression.Variable(new VariableIndex(0, nscope.FunctionalDepth)), Prepare(Inner, nscope, Input));
         }
 
         /// <summary>
@@ -299,11 +321,11 @@ namespace SaltScript
         /// <summary>
         /// Gets if the two specified reduced expressions are equivalent.
         /// </summary>
-        public static bool Equivalent(Expression A, Expression B)
+        public static FuzzyBool Equivalent(Expression A, Expression B)
         {
             if (A == B)
             {
-                return true;
+                return FuzzyBool.True;
             }
 
             // Variable equality
@@ -313,7 +335,7 @@ namespace SaltScript
                 VariableExpression ba = B as VariableExpression;
                 if (ba != null)
                 {
-                    return va.Index.FunctionalDepth == ba.Index.FunctionalDepth && va.Index.StackIndex == ba.Index.StackIndex;
+                    return va.Index.FunctionalDepth == ba.Index.FunctionalDepth && va.Index.StackIndex == ba.Index.StackIndex ? FuzzyBool.True : FuzzyBool.False;
                 }
             }
 
@@ -326,20 +348,51 @@ namespace SaltScript
                 {
                     if (at.Parts.Length != bt.Parts.Length)
                     {
-                        return false;
+                        return FuzzyBool.False;
                     }
                     for (int t = 0; t < at.Parts.Length; t++)
                     {
-                        if (!Equivalent(at.Parts[t], bt.Parts[t]))
+                        FuzzyBool pe = Equivalent(at.Parts[t], bt.Parts[t]);
+                        if (pe == FuzzyBool.False)
                         {
-                            return false;
+                            return FuzzyBool.False;
+                        }
+                        if (pe == FuzzyBool.Undetermined)
+                        {
+                            return FuzzyBool.Undetermined;
                         }
                     }
-                    return true;
+                    return FuzzyBool.True;
                 }
             }
 
-            return false;
+            // Function type equality
+            FunctionTypeExpression aft = A as FunctionTypeExpression;
+            if (aft != null)
+            {
+                FunctionTypeExpression bft = B as FunctionTypeExpression;
+                if (bft != null)
+                {
+                    return FuzzyBoolLogic.And(
+                        Expression.Equivalent(aft.ArgumentType, bft.ArgumentType),
+                        Expression.Equivalent(aft.ReturnTypeFunction, bft.ReturnTypeFunction));
+                }
+            }
+
+            // Function definition equality
+            FunctionDefineExpression afd = A as FunctionDefineExpression;
+            if (afd != null)
+            {
+                FunctionDefineExpression bfd = B as FunctionDefineExpression;
+                if (bfd != null)
+                {
+                    return FuzzyBoolLogic.And(
+                        Expression.Equivalent(afd.ArgumentType, bfd.ArgumentType),
+                        Expression.Equivalent(afd.Function, bfd.Function));
+                }
+            }
+
+            return FuzzyBool.Undetermined;
         }
     }
 
@@ -473,7 +526,7 @@ namespace SaltScript
             Expression argtype;
             this.Argument.TypeCheck(TypeStack, Stack, out sarg, out argtype);
 
-            if (!Expression.Equivalent(argtype.Reduce(li), fte.ArgumentType))
+            if (Expression.Equivalent(argtype.Reduce(li), fte.ArgumentType) != FuzzyBool.True)
             {
                 throw new TypeCheckException(this);
             }
@@ -547,6 +600,11 @@ namespace SaltScript
         {
             this.ArgumentType = ArgumentType;
             this.Function = Function;
+        }
+
+        public override Expression Reduce(VariableIndex NextIndex)
+        {
+            return new FunctionDefineExpression(this.ArgumentType.Reduce(NextIndex), this.Function.Reduce(NextIndex));
         }
 
         public override Value Evaluate(VariableStack<Value> Stack)

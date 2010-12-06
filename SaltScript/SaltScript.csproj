@@ -48,6 +48,7 @@
     <Compile Include="Default.cs" />
     <Compile Include="Expression.cs" />
     <Compile Include="Function.cs" />
+    <Compile Include="FuzzyBool.cs" />
     <Compile Include="Interpret.cs" />
     <Compile Include="Parser.cs" />
     <Compile Include="Procedure.cs" />

@@ -389,6 +389,25 @@ namespace SaltScript
                 }
             }
 
+            // Function type
+            if (AcceptString(Text, Start, "<", out LastChar))
+            {
+                AcceptWhitespace(Text, LastChar, out LastChar);
+                List<KeyValuePair<Expression, string>> argtypelist;
+                AcceptArgumentList(Text, LastChar, out argtypelist, out LastChar);
+                AcceptWhitespace(Text, LastChar, out LastChar);
+                if (AcceptString(Text, LastChar, ">", out LastChar))
+                {
+                    AcceptWhitespace(Text, LastChar, out LastChar);
+                    Expression returntype;
+                    if (AcceptTightExpression(Text, LastChar, out returntype, out LastChar))
+                    {
+                        Expression = new FunctionTypeExpression(argtypelist, returntype);
+                        return true;
+                    }
+                }
+            }
+
             Expression = null;
             return false;
         }
@@ -904,6 +923,21 @@ namespace SaltScript
 
             public List<KeyValuePair<Expression, string>> Arguments;
             public Expression Definition;
+        }
+
+        /// <summary>
+        /// An expression that defines a function type.
+        /// </summary>
+        public class FunctionTypeExpression : Expression
+        {
+            public FunctionTypeExpression(List<KeyValuePair<Expression, string>> ArgumentTypes, Expression ReturnType)
+            {
+                this.ArgumentTypes = ArgumentTypes;
+                this.ReturnType = ReturnType;
+            }
+
+            public List<KeyValuePair<Expression, string>> ArgumentTypes;
+            public Expression ReturnType;
         }
 
         /// <summary>

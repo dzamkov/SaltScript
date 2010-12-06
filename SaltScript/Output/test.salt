@@ -1,8 +1,7 @@
-int x = 5;
-int y = 10;
-int z = function(int a) { 
-	return function(int b) { 
-		return a * b; 
-	}; 
-}(5)(7);
-return x * x + y * y + z;
+<int>int square = function(int x) {
+	return x * x;
+};
+<int>int cube = function(int x) {
+	return x * square(x);
+};
+return cube(5);

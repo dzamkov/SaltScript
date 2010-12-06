@@ -298,7 +298,8 @@ namespace SaltScript
             Expression valtype;
             this._Value.TypeCheck(TypeStack, Stack, out sval, out valtype);
 
-            if (Expression.Equivalent(TypeStack.Lookup(this._Variable), valtype.Reduce(Stack.NextIndex)))
+            FuzzyBool typeokay = Expression.Equivalent(TypeStack.Lookup(this._Variable), valtype.Reduce(Stack.NextIndex));
+            if (typeokay == FuzzyBool.True)
             {
                 Stack.Modify(this._Variable, sval.Substitute(Stack));
                 TypeSafeStatement = new SetStatement(this._Variable, sval);
