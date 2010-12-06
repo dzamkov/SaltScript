@@ -80,7 +80,7 @@ namespace SaltScript
                 Expression argtype;
                 Expression inner;
                 _PrepareLambda(fte.ArgumentTypes, fte.ReturnType, Scope, Input, out argtype, out inner);
-                return new FunctionTypeExpression(argtype, new FunctionDefineExpression(argtype, inner));
+                return new FunctionDefineExpression(argtype, inner);
             }
 
             throw new NotImplementedException();
@@ -137,7 +137,10 @@ namespace SaltScript
                 }
             }
             ArgumentType = Expression.Tuple(types);
-            PreparedInner = Expression.BreakTuple(Expression.Variable(new VariableIndex(0, nscope.FunctionalDepth)), Prepare(Inner, nscope, Input));
+            PreparedInner = Expression.BreakTuple(
+                Arguments.Count,
+                Expression.Variable(new VariableIndex(0, nscope.FunctionalDepth)), 
+                Prepare(Inner, nscope, Input));
         }
 
         /// <summary>
@@ -180,6 +183,16 @@ namespace SaltScript
             {
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Compresses the scope size of expression by removing the specified variables. If it is not possible to remove the variables because
+        /// the expression depends on them, this returns null. The start index must be a valid index in the scope of this expression. This function
+        /// may not be used to remove a level of functional depth.
+        /// </summary>
+        public virtual Expression Compress(VariableIndex Start, int Amount)
+        {
+            return null;
         }
 
         /// <summary>
@@ -245,20 +258,11 @@ namespace SaltScript
         }
 
         /// <summary>
-        /// Creates an expression for a function type, given the argument type and a function that, when given the argument, will return
-        /// the function's return type.
+        /// Creates an expression for a function type, given the argument type and the return type(which has access to the argument in its current scope).
         /// </summary>
-        public static FunctionTypeExpression FunctionType(Expression ArgumentType, Expression ReturnTypeFunction)
+        public static FunctionDefineExpression FunctionType(Expression ArgumentType, Expression ReturnType)
         {
-            return new FunctionTypeExpression(ArgumentType, ReturnTypeFunction);
-        }
-
-        /// <summary>
-        /// Creates an expression for a function type, given the argument type and the return type.
-        /// </summary>
-        public static FunctionTypeExpression SimpleFunctionType(Expression ArgumentType, Expression ReturnType)
-        {
-            return FunctionType(ArgumentType, DefineFunction(ArgumentType, ReturnType));
+            return new FunctionDefineExpression(ArgumentType, ReturnType);
         }
 
         /// <summary>
@@ -296,9 +300,9 @@ namespace SaltScript
         /// <summary>
         /// Creates an expression that causes the parts in tuple to be used in the stack of the inner expression.
         /// </summary>
-        public static TupleBreakExpression BreakTuple(Expression Tuple, Expression Inner)
+        public static TupleBreakExpression BreakTuple(int Size, Expression Tuple, Expression Inner)
         {
-            return new TupleBreakExpression(Tuple, Inner);
+            return new TupleBreakExpression(Size, Tuple, Inner);
         }
 
         /// <summary>
@@ -366,16 +370,16 @@ namespace SaltScript
                 }
             }
 
-            // Function type equality
-            FunctionTypeExpression aft = A as FunctionTypeExpression;
-            if (aft != null)
+            // Tuple break
+            TupleBreakExpression atb = A as TupleBreakExpression;
+            if (atb != null)
             {
-                FunctionTypeExpression bft = B as FunctionTypeExpression;
-                if (bft != null)
+                TupleBreakExpression btb = B as TupleBreakExpression;
+                if (btb != null)
                 {
                     return FuzzyBoolLogic.And(
-                        Expression.Equivalent(aft.ArgumentType, bft.ArgumentType),
-                        Expression.Equivalent(aft.ReturnTypeFunction, bft.ReturnTypeFunction));
+                        Expression.Equivalent(atb.SourceTuple, btb.SourceTuple),
+                        Expression.Equivalent(atb.InnerExpression, btb.InnerExpression));
                 }
             }
 
@@ -451,6 +455,23 @@ namespace SaltScript
             return Stack.Lookup(this.Index);
         }
 
+        public override Expression Compress(VariableIndex Start, int Amount)
+        {
+            if (Start.FunctionalDepth != this.Index.FunctionalDepth)
+            {
+                return this;
+            }
+            if (Start.StackIndex < this.Index.StackIndex)
+            {
+                return new VariableExpression(new VariableIndex(this.Index.StackIndex - Amount, Start.FunctionalDepth));
+            }
+            if (Start.StackIndex > this.Index.StackIndex)
+            {
+                return this;
+            }
+            return null;
+        }
+
         public override Expression Substitute(VariableStack<Expression> Stack)
         {
             return Expression.Lookup(this.Index, Stack);
@@ -516,7 +537,7 @@ namespace SaltScript
             this.Function.TypeCheck(TypeStack, Stack, out sfunc, out functype);
 
             functype = functype.Reduce(li);
-            FunctionTypeExpression fte = functype as FunctionTypeExpression;
+            FunctionDefineExpression fte = functype as FunctionDefineExpression;
             if (fte == null)
             {
                 throw new NotCallableException(this);
@@ -532,7 +553,7 @@ namespace SaltScript
             }
 
             TypeSafeExpression = new FunctionCallExpression(sfunc, sarg);
-            Type = new FunctionCallExpression(fte.ReturnTypeFunction, sarg);
+            Type = fte.Function.Substitute(Stack.AppendHigherFunction(new Expression[] { sarg }));
         }
 
         /// <summary>
@@ -547,52 +568,9 @@ namespace SaltScript
     }
 
     /// <summary>
-    /// An expression that creates a function type.
-    /// </summary>
-    public class FunctionTypeExpression : Expression
-    {
-        public FunctionTypeExpression(Expression ArgumentType, Expression ReturnTypeFunction)
-        {
-            this.ArgumentType = ArgumentType;
-            this.ReturnTypeFunction = ReturnTypeFunction;
-        }
-
-        public override Expression Reduce(VariableIndex NextIndex)
-        {
-            return new FunctionTypeExpression(this.ArgumentType.Reduce(NextIndex), this.ReturnTypeFunction.Reduce(NextIndex));
-        }
-
-        public override Value Evaluate(VariableStack<Value> Stack)
-        {
-            return null;
-        }
-
-        public override Expression Substitute(VariableStack<Expression> Variables)
-        {
-            return new FunctionTypeExpression(this.ArgumentType.Substitute(Variables), this.ReturnTypeFunction.Substitute(Variables));
-        }
-
-        public override void TypeCheck(
-            VariableStack<Expression> TypeStack,
-            VariableStack<Expression> Stack,
-            out Expression TypeSafeExpression, out Expression Type)
-        {
-            throw new NotImplementedException();
-        }
-
-        /// <summary>
-        /// The type of the argument to the function.
-        /// </summary>
-        public Expression ArgumentType;
-
-        /// <summary>
-        /// A function, that when called with the argument value, will get the return type of the function.
-        /// </summary>
-        public Expression ReturnTypeFunction;
-    }
-
-    /// <summary>
-    /// An expression that defines a function that takes an argument and returns a result by evaluating another expression.
+    /// An expression that defines a function that takes an argument and returns a result by evaluating another expression. Can be used to indicate
+    /// a function type where the argument type is the type of the argument in a function type, and the function, when evaluated with the argument, will
+    /// get the return type of the function type.
     /// </summary>
     public class FunctionDefineExpression : Expression
     {
@@ -604,7 +582,7 @@ namespace SaltScript
 
         public override Expression Reduce(VariableIndex NextIndex)
         {
-            return new FunctionDefineExpression(this.ArgumentType.Reduce(NextIndex), this.Function.Reduce(NextIndex));
+            return new FunctionDefineExpression(this.ArgumentType.Reduce(NextIndex), this.Function.Reduce(new VariableIndex(1, NextIndex.FunctionalDepth + 1)));
         }
 
         public override Value Evaluate(VariableStack<Value> Stack)
@@ -623,7 +601,7 @@ namespace SaltScript
                 TypeStack.AppendHigherFunction(new Expression[] { this.ArgumentType }), 
                 Stack.AppendHigherFunction(new Expression[] { Expression.Variable(new VariableIndex(0, Stack.NextIndex.FunctionalDepth + 1)) }), 
                 out sifunc, out itype);
-            Type = Expression.SimpleFunctionType(this.ArgumentType, itype);
+            Type = Expression.FunctionType(this.ArgumentType, itype);
             TypeSafeExpression = new FunctionDefineExpression(this.ArgumentType, sifunc);
         }
 

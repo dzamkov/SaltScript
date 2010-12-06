@@ -153,10 +153,26 @@ namespace SaltScript
     /// </summary>
     public class TupleBreakExpression : Expression
     {
-        public TupleBreakExpression(Expression Tuple, Expression InnerExpression)
+        public TupleBreakExpression(int TupleSize, Expression Tuple, Expression InnerExpression)
         {
+            this.TupleSize = TupleSize;
             this.SourceTuple = Tuple;
             this.InnerExpression = InnerExpression;
+        }
+
+        public override Expression Reduce(VariableIndex NextIndex)
+        {
+            Expression tre = this.SourceTuple.Reduce(NextIndex);
+
+            // Wouldn't it be hilarious if the inner expression never even used the tuple's data?
+            Expression ire = this.InnerExpression.Reduce(NextIndex);
+            Expression cire = ire.Compress(NextIndex, this.TupleSize);
+            if (cire != null)
+            {
+                return cire;
+            }
+
+            return new TupleBreakExpression(this.TupleSize, tre, ire);
         }
 
         public override Value Evaluate(VariableStack<Value> Stack)
@@ -195,9 +211,18 @@ namespace SaltScript
             if (se != null)
             {
                 stackappend = se.Parts ?? new Expression[0];
+                if (stackappend.Length != this.TupleSize)
+                {
+                    throw new NotImplementedException();
+                }
             }
             else
             {
+                if (te.Parts.Length != this.TupleSize)
+                {
+                    throw new NotImplementedException();
+                }
+
                 stackappend = new Expression[te.Parts.Length];
                 VariableIndex ni = Stack.NextIndex;
                 for (int t = 0; t < te.Parts.Length; t++)
@@ -214,9 +239,14 @@ namespace SaltScript
                 out si,
                 out itype);
 
-            TypeSafeExpression = new TupleBreakExpression(stuple, si);
+            TypeSafeExpression = new TupleBreakExpression(this.TupleSize, stuple, si);
             Type = itype;
         }
+
+        /// <summary>
+        /// The size of the source tuple.
+        /// </summary>
+        public int TupleSize;
 
         /// <summary>
         /// The tuple to "break".

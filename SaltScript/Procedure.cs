@@ -247,7 +247,7 @@ namespace SaltScript
                 KeyValuePair<int, Expression> defineinfo;
                 if (this._DefinedTypesByStatement.TryGetValue(t, out defineinfo))
                 {
-                    types[defineinfo.Key] = defineinfo.Value.Substitute(Stack);
+                    types[defineinfo.Key] = defineinfo.Value.Substitute(Stack).Reduce(Stack.NextIndex);
                 }
 
                 Statement s = this._Substatements[t];
