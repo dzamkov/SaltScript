@@ -1,4 +1,2 @@
-<int, int>int sum = function(int a, int b) {
-	return a + b;
-};
-return sum(4, 5);
+<type a><a>a identity = (type a) => (a x) => x;
+return identity(int)(100);

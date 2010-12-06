@@ -547,7 +547,8 @@ namespace SaltScript
             Expression argtype;
             this.Argument.TypeCheck(TypeStack, Stack, out sarg, out argtype);
 
-            if (Expression.Equivalent(argtype.Reduce(li), fte.ArgumentType) != FuzzyBool.True)
+            FuzzyBool typeokay = Expression.Equivalent(argtype.Reduce(li), fte.ArgumentType);
+            if (typeokay != FuzzyBool.True)
             {
                 throw new TypeCheckException(this);
             }
@@ -588,6 +589,15 @@ namespace SaltScript
         public override Value Evaluate(VariableStack<Value> Stack)
         {
             return new ExpressionFunction(Stack, this.Function);
+        }
+
+        public override Expression Substitute(VariableStack<Expression> Stack)
+        {
+            return new FunctionDefineExpression(
+                this.ArgumentType.Substitute(Stack),
+                this.Function.Substitute(
+                    Stack.AppendHigherFunction(
+                        new Expression[] { Expression.Variable(new VariableIndex(0, Stack.NextIndex.FunctionalDepth + 1)) })));
         }
 
         public override void TypeCheck(
