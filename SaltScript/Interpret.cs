@@ -15,14 +15,12 @@ namespace SaltScript
         }
 
         /// <summary>
-        /// Gets the functional depth and index of the specified variable, if it is found.
+        /// Gets the index of the specified variable, if it is found.
         /// </summary>
-        public bool LookupVariable(string Name, out VariableIndex Index)
+        public bool LookupVariable(string Name, out int Index)
         {
-            int i;
-            if (this.Variables.TryGetValue(Name, out i))
+            if (this.Variables.TryGetValue(Name, out Index))
             {
-                Index = new VariableIndex(i, this.FunctionalDepth);
                 return true;
             }
             else
@@ -33,7 +31,7 @@ namespace SaltScript
                 }
                 else
                 {
-                    Index = new VariableIndex();
+                    Index = -1;
                     return false;
                 }
             }
@@ -46,19 +44,14 @@ namespace SaltScript
         public Scope Parent;
 
         /// <summary>
-        /// Table of variable names and their relative stack indices.
+        /// Table of variable names and their stack indices.
         /// </summary>
         public Dictionary<string, int> Variables;
 
         /// <summary>
-        /// The next unassigned variable index.
+        /// The next available unassigned index.
         /// </summary>
         public int NextFreeIndex;
-
-        /// <summary>
-        /// Functional depth of this scope.
-        /// </summary>
-        public int FunctionalDepth;
     }
 
     /// <summary>
@@ -76,21 +69,20 @@ namespace SaltScript
             this._Values = Values;
         }
 
-        public VariableStack(int FunctionalDepth, TValue[] Values)
+        public VariableStack(int StartIndex, TValue[] Values)
         {
-            this._FunctionalDepth = FunctionalDepth;
+            this._StartIndex = StartIndex;
             this._Values = Values;
         }
 
         /// <summary>
         /// Creates a stack that is empty up until the specified index, after which it is undefined.
         /// </summary>
-        public static VariableStack<TValue> Empty(VariableIndex Index)
+        public static VariableStack<TValue> Empty(int Index)
         {
             return new VariableStack<TValue>()
             {
-                _FunctionalDepth = Index.FunctionalDepth,
-                _StartIndex = Index.StackIndex,
+                _StartIndex = Index,
                 _Values = new TValue[0],
                 _Lower = null
             };
@@ -99,11 +91,11 @@ namespace SaltScript
         /// <summary>
         /// Gets the index of the variable after the last in the stack.
         /// </summary>
-        public VariableIndex NextIndex
+        public int NextIndex
         {
             get
             {
-                return new VariableIndex(this._StartIndex + this._Values.Length, this._FunctionalDepth);
+                return this._StartIndex + this._Values.Length;
             }
         }
 
@@ -114,7 +106,6 @@ namespace SaltScript
         {
             return new VariableStack<TValue>()
             {
-                _FunctionalDepth = this._FunctionalDepth,
                 _Lower =  this,
                 _StartIndex = this._StartIndex + this._Values.Length,
                 _Values = Values
@@ -128,7 +119,6 @@ namespace SaltScript
         {
             return new VariableStack<TValue>()
             {
-                _FunctionalDepth = this._FunctionalDepth,
                 _Lower = this,
                 _StartIndex = this._StartIndex + this._Values.Length,
                 _Values = new TValue[Amount]
@@ -136,23 +126,9 @@ namespace SaltScript
         }
 
         /// <summary>
-        /// Appends values to the stack at a higher functional depth.
-        /// </summary>
-        public VariableStack<TValue> AppendHigherFunction(TValue[] Values)
-        {
-            return new VariableStack<TValue>()
-            {
-                _FunctionalDepth = this._FunctionalDepth + 1,
-                _Lower = this,
-                _StartIndex = 0,
-                _Values = Values
-            };
-        }
-
-        /// <summary>
         /// Gets the value for the variable with the specified start index and functional depth.
         /// </summary>
-        public TValue Lookup(VariableIndex Index)
+        public TValue Lookup(int Index)
         {
             VariableStack<TValue> stack;
             int valindex;
@@ -163,7 +139,7 @@ namespace SaltScript
         /// <summary>
         /// Tries getting the variable with the specified index, returning false if not found.
         /// </summary>
-        public bool Lookup(VariableIndex Index, out TValue Value)
+        public bool Lookup(int Index, out TValue Value)
         {
             VariableStack<TValue> stack;
             int valindex;
@@ -182,7 +158,7 @@ namespace SaltScript
         /// <summary>
         /// Modifies a variable on the stack.
         /// </summary>
-        public void Modify(VariableIndex Index, TValue Value)
+        public void Modify(int Index, TValue Value)
         {
             VariableStack<TValue> stack;
             int valindex;
@@ -190,10 +166,10 @@ namespace SaltScript
             stack._Values[valindex] = Value;
         }
 
-        private bool _GetIndex(VariableIndex Index, out VariableStack<TValue> Stack, out int ValIndex)
+        private bool _GetIndex(int Index, out VariableStack<TValue> Stack, out int ValIndex)
         {
             Stack = this;
-            while (Stack._FunctionalDepth > Index.FunctionalDepth || Stack._StartIndex > Index.StackIndex)
+            while (Stack._StartIndex > Index)
             {
                 Stack = Stack._Lower;
                 if (Stack == null)
@@ -202,7 +178,7 @@ namespace SaltScript
                     return false;
                 }
             }
-            ValIndex = Index.StackIndex - Stack._StartIndex;
+            ValIndex = Index - Stack._StartIndex;
             return true;
         }
 
@@ -211,10 +187,6 @@ namespace SaltScript
         /// </summary>
         private VariableStack<TValue> _Lower;
 
-        /// <summary>
-        /// The functional depth this part of the stack is on.
-        /// </summary>
-        private int _FunctionalDepth;
 
         /// <summary>
         /// The index of the first value recorded in this part of the stack.
@@ -264,7 +236,7 @@ namespace SaltScript
                 Type = Type,
                 Value = Value
             });
-            return Expression.Variable(new VariableIndex(i, 0));
+            return Expression.Variable(i);
         }
 
         /// <summary>
@@ -273,7 +245,7 @@ namespace SaltScript
         protected Expression AddUniversalType(string Name, Value Value)
         {
             int i = this._RootVariables.Count;
-            Expression exp = Expression.Variable(new VariableIndex(i, 0));
+            Expression exp = Expression.Variable(i);
             this._RootVariables.Add(new _RootVariable()
             {
                 Name = Name,
@@ -297,7 +269,7 @@ namespace SaltScript
                 types[t] = this._RootVariables[t].Type;
                 varmap.Add(this._RootVariables[t].Name, t);
             }
-            Scope = new Scope() { FunctionalDepth = 0, Variables = varmap, NextFreeIndex = vals.Length };
+            Scope = new Scope() { Variables = varmap, NextFreeIndex = vals.Length };
             Stack = new VariableStack<Value>(vals);
             TypeStack = new VariableStack<Expression>(types);
         }

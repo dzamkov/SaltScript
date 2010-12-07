@@ -101,10 +101,10 @@ namespace SaltScript
 
             // 1 arg function
             Dictionary<string, int> vars;
+            int argloc = Scope.NextFreeIndex;
             Scope nscope = new Scope()
             {
-                FunctionalDepth = Scope.FunctionalDepth + 1,
-                NextFreeIndex = 1,
+                NextFreeIndex = argloc + 1,
                 Variables = vars = new Dictionary<string, int>(),
                 Parent = Scope
             };
@@ -113,7 +113,7 @@ namespace SaltScript
                 var kvp = Arguments[0];
                 if (kvp.Value != null)
                 {
-                    vars.Add(kvp.Value, 0);
+                    vars.Add(kvp.Value, argloc);
                 }
                 ArgumentType = Prepare(kvp.Key, Scope, Input);
                 PreparedInner = Prepare(Inner, nscope, Input);
@@ -133,20 +133,20 @@ namespace SaltScript
                 string argname = Arguments[t].Value;
                 if (argname != null)
                 {
-                    vars.Add(argname, t + 1);
+                    vars.Add(argname, t + argloc + 1);
                 }
             }
             ArgumentType = Expression.Tuple(types);
             PreparedInner = Expression.BreakTuple(
                 Arguments.Count,
-                Expression.Variable(new VariableIndex(0, nscope.FunctionalDepth)), 
+                Expression.Variable(argloc), 
                 Prepare(Inner, nscope, Input));
         }
 
         /// <summary>
         /// Looks up or "dereferences" a variable with the given index in the specified stack.
         /// </summary>
-        public static Expression Lookup(VariableIndex Index, VariableStack<Expression> Stack)
+        public static Expression Lookup(int Index, VariableStack<Expression> Stack)
         {
             Expression res;
             if (Stack.Lookup(Index, out res))
@@ -174,7 +174,7 @@ namespace SaltScript
         /// </summary>
         public static VariableExpression PrepareVariable(string Name, Scope Scope)
         {
-            VariableIndex index;
+            int index;
             if (Scope.LookupVariable(Name, out index))
             {
                 return new VariableExpression(index);
@@ -187,10 +187,9 @@ namespace SaltScript
 
         /// <summary>
         /// Compresses the scope size of expression by removing the specified variables. If it is not possible to remove the variables because
-        /// the expression depends on them, this returns null. The start index must be a valid index in the scope of this expression. This function
-        /// may not be used to remove a level of functional depth.
+        /// the expression depends on them, this returns null.
         /// </summary>
-        public virtual Expression Compress(VariableIndex Start, int Amount)
+        public virtual Expression Compress(int Start, int Amount)
         {
             return null;
         }
@@ -211,6 +210,14 @@ namespace SaltScript
         public virtual Expression Substitute(VariableStack<Expression> Stack)
         {
             return this;
+        }
+
+        /// <summary>
+        /// Substitutes a single variable in the expression.
+        /// </summary>
+        public Expression SubstituteOne(int Index, Expression Value)
+        {
+            return this.Substitute(VariableStack<Expression>.Empty(Index).Append(new Expression[] { Value }));
         }
 
         /// <summary>
@@ -308,7 +315,7 @@ namespace SaltScript
         /// <summary>
         /// Creates a
         /// </summary>
-        public static VariableExpression Variable(VariableIndex Index)
+        public static VariableExpression Variable(int Index)
         {
             return new VariableExpression(Index);
         }
@@ -317,7 +324,7 @@ namespace SaltScript
         /// Simplifies the expression, given the last variable index in the current scope. This is should only
         /// be used on type-checked expressions.
         /// </summary>
-        public virtual Expression Reduce(VariableIndex NextIndex)
+        public virtual Expression Reduce(int NextIndex)
         {
             return this;
         }
@@ -325,7 +332,7 @@ namespace SaltScript
         /// <summary>
         /// Gets if the two specified reduced expressions are equivalent.
         /// </summary>
-        public static FuzzyBool Equivalent(Expression A, Expression B)
+        public static FuzzyBool Equivalent(Expression A, Expression B, VariableStack<Expression> Stack)
         {
             if (A == B)
             {
@@ -336,10 +343,53 @@ namespace SaltScript
             VariableExpression va = A as VariableExpression;
             if (va != null)
             {
-                VariableExpression ba = B as VariableExpression;
-                if (ba != null)
+                VariableExpression vb = B as VariableExpression;
+                if (vb != null)
                 {
-                    return va.Index.FunctionalDepth == ba.Index.FunctionalDepth && va.Index.StackIndex == ba.Index.StackIndex ? FuzzyBool.True : FuzzyBool.False;
+                    if (va.Index == vb.Index)
+                    {
+                        return FuzzyBool.True;
+                    }
+                    else
+                    {
+                        // Maybe a dereference is needed?
+                        bool vachange = false;
+                        bool vbchange = false;
+                        Expression na;
+                        Expression nb;
+                        if (Stack.Lookup(va.Index, out na))
+                        {
+                            VariableExpression temp = na as VariableExpression;
+                            if (temp == null || temp.Index != va.Index)
+                            {
+                                vachange = true;
+                            }
+                        }
+                        else
+                        {
+                            na = va;
+                        }
+                        if (Stack.Lookup(vb.Index, out nb))
+                        {
+                            VariableExpression temp = nb as VariableExpression;
+                            if (temp == null || temp.Index != vb.Index)
+                            {
+                                vbchange = true;
+                            }
+                        }
+                        else
+                        {
+                            nb = vb;
+                        }
+                        if (vachange || vbchange)
+                        {
+                            return Equivalent(na, nb, Stack);
+                        }
+                        else
+                        {
+                            return FuzzyBool.False;
+                        }
+                    }
                 }
             }
 
@@ -356,7 +406,7 @@ namespace SaltScript
                     }
                     for (int t = 0; t < at.Parts.Length; t++)
                     {
-                        FuzzyBool pe = Equivalent(at.Parts[t], bt.Parts[t]);
+                        FuzzyBool pe = Equivalent(at.Parts[t], bt.Parts[t], Stack);
                         if (pe == FuzzyBool.False)
                         {
                             return FuzzyBool.False;
@@ -378,8 +428,8 @@ namespace SaltScript
                 if (btb != null)
                 {
                     return FuzzyBoolLogic.And(
-                        Expression.Equivalent(atb.SourceTuple, btb.SourceTuple),
-                        Expression.Equivalent(atb.InnerExpression, btb.InnerExpression));
+                        Expression.Equivalent(atb.SourceTuple, btb.SourceTuple, Stack),
+                        Expression.Equivalent(atb.InnerExpression, btb.InnerExpression, Stack));
                 }
             }
 
@@ -391,8 +441,8 @@ namespace SaltScript
                 if (bfd != null)
                 {
                     return FuzzyBoolLogic.And(
-                        Expression.Equivalent(afd.ArgumentType, bfd.ArgumentType),
-                        Expression.Equivalent(afd.Function, bfd.Function));
+                        Expression.Equivalent(afd.ArgumentType, bfd.ArgumentType, Stack),
+                        Expression.Equivalent(afd.Function, bfd.Function, Stack));
                 }
             }
 
@@ -445,7 +495,7 @@ namespace SaltScript
     /// </summary>
     public class VariableExpression : Expression
     {
-        public VariableExpression(VariableIndex Index)
+        public VariableExpression(int Index)
         {
             this.Index = Index;
         }
@@ -455,17 +505,13 @@ namespace SaltScript
             return Stack.Lookup(this.Index);
         }
 
-        public override Expression Compress(VariableIndex Start, int Amount)
+        public override Expression Compress(int Start, int Amount)
         {
-            if (Start.FunctionalDepth != this.Index.FunctionalDepth)
+            if (Start + Amount <= this.Index)
             {
-                return this;
+                return new VariableExpression(this.Index - Amount);
             }
-            if (Start.StackIndex < this.Index.StackIndex)
-            {
-                return new VariableExpression(new VariableIndex(this.Index.StackIndex - Amount, Start.FunctionalDepth));
-            }
-            if (Start.StackIndex > this.Index.StackIndex)
+            if (Start > this.Index)
             {
                 return this;
             }
@@ -486,7 +532,7 @@ namespace SaltScript
             Type = TypeStack.Lookup(this.Index);
         }
 
-        public VariableIndex Index;
+        public int Index;
     }
 
     /// <summary>
@@ -500,7 +546,7 @@ namespace SaltScript
             this.Argument = Argument;
         }
 
-        public override Expression Reduce(VariableIndex LastIndex)
+        public override Expression Reduce(int LastIndex)
         {
             Expression freduce = this.Function.Reduce(LastIndex);
             Expression areduce = this.Argument.Reduce(LastIndex);
@@ -509,7 +555,7 @@ namespace SaltScript
             FunctionDefineExpression fde = freduce as FunctionDefineExpression;
             if (fde != null)
             {
-                return fde.Function.Substitute(new VariableStack<Expression>(LastIndex.FunctionalDepth + 1, new Expression[] { areduce })).Reduce(LastIndex);
+                return fde.Function.Substitute(new VariableStack<Expression>(LastIndex + 1, new Expression[] { areduce })).Reduce(LastIndex);
             }
 
             return new FunctionCallExpression(freduce, areduce);
@@ -530,7 +576,7 @@ namespace SaltScript
             VariableStack<Expression> Stack,
             out Expression TypeSafeExpression, out Expression Type)
         {
-            VariableIndex li = TypeStack.NextIndex;
+            int li = TypeStack.NextIndex;
 
             Expression sfunc;
             Expression functype;
@@ -547,14 +593,14 @@ namespace SaltScript
             Expression argtype;
             this.Argument.TypeCheck(TypeStack, Stack, out sarg, out argtype);
 
-            FuzzyBool typeokay = Expression.Equivalent(argtype.Reduce(li), fte.ArgumentType);
+            FuzzyBool typeokay = Expression.Equivalent(argtype.Reduce(li), fte.ArgumentType, Stack);
             if (typeokay != FuzzyBool.True)
             {
                 throw new TypeCheckException(this);
             }
 
             TypeSafeExpression = new FunctionCallExpression(sfunc, sarg);
-            Type = fte.Function.Substitute(Stack.AppendHigherFunction(new Expression[] { sarg }));
+            Type = fte.Function.SubstituteOne(Stack.NextIndex, sarg);
         }
 
         /// <summary>
@@ -581,9 +627,9 @@ namespace SaltScript
             this.Function = Function;
         }
 
-        public override Expression Reduce(VariableIndex NextIndex)
+        public override Expression Reduce(int NextIndex)
         {
-            return new FunctionDefineExpression(this.ArgumentType.Reduce(NextIndex), this.Function.Reduce(new VariableIndex(1, NextIndex.FunctionalDepth + 1)));
+            return new FunctionDefineExpression(this.ArgumentType.Reduce(NextIndex), this.Function.Reduce(NextIndex + 1));
         }
 
         public override Value Evaluate(VariableStack<Value> Stack)
@@ -596,8 +642,7 @@ namespace SaltScript
             return new FunctionDefineExpression(
                 this.ArgumentType.Substitute(Stack),
                 this.Function.Substitute(
-                    Stack.AppendHigherFunction(
-                        new Expression[] { Expression.Variable(new VariableIndex(0, Stack.NextIndex.FunctionalDepth + 1)) })));
+                    Stack.Append(new Expression[] { Expression.Variable(Stack.NextIndex) })));
         }
 
         public override void TypeCheck(
@@ -608,8 +653,8 @@ namespace SaltScript
             Expression sifunc;
             Expression itype;
             this.Function.TypeCheck(
-                TypeStack.AppendHigherFunction(new Expression[] { this.ArgumentType }), 
-                Stack.AppendHigherFunction(new Expression[] { Expression.Variable(new VariableIndex(0, Stack.NextIndex.FunctionalDepth + 1)) }), 
+                TypeStack.Append(new Expression[] { this.ArgumentType }), 
+                Stack.Append(new Expression[] { Expression.Variable(Stack.NextIndex) }), 
                 out sifunc, out itype);
             Type = Expression.FunctionType(this.ArgumentType, itype);
             TypeSafeExpression = new FunctionDefineExpression(this.ArgumentType, sifunc);
@@ -658,56 +703,5 @@ namespace SaltScript
         /// The property to retreive from the object.
         /// </summary>
         public string Property;
-    }
-
-    /// <summary>
-    /// Identifies a variable on the stack.
-    /// </summary>
-    public struct VariableIndex
-    {
-        public VariableIndex(int StackIndex, int FunctionalDepth)
-        {
-            this.StackIndex = StackIndex;
-            this.FunctionalDepth = FunctionalDepth;
-        }
-
-        public static bool operator ==(VariableIndex A, VariableIndex B)
-        {
-            return A.StackIndex == B.StackIndex && A.FunctionalDepth == B.FunctionalDepth;
-        }
-
-        public static bool operator !=(VariableIndex A, VariableIndex B)
-        {
-            return A.StackIndex != B.StackIndex || A.FunctionalDepth != B.FunctionalDepth;
-        }
-
-        public override bool Equals(object obj)
-        {
-            VariableIndex? vi = obj as VariableIndex?;
-            if (vi != null)
-            {
-                return this == vi.Value;
-            }
-            else
-            {
-                return false;
-            }
-        }
-
-        public override int GetHashCode()
-        {
-            return this.StackIndex ^ this.FunctionalDepth;
-        }
-
-        /// <summary>
-        /// Relative position of the variable on the stack of the function that defines it.
-        /// </summary>
-        public int StackIndex;
-
-        /// <summary>
-        /// The amount of functional scopes in this variable is defined. 0 Indicates that this variable is used in the same function
-        /// it is defined in. 1 Indicates that the variable is used in a closure of the function that defines it. And so on...
-        /// </summary>
-        public int FunctionalDepth;
     }
 }

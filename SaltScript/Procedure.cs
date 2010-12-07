@@ -23,14 +23,14 @@ namespace SaltScript
 
             // Prepare cloned variable list
             Dictionary<string, int> clonemap = new Dictionary<string, int>();
-            List<VariableIndex> rclonemap = new List<VariableIndex>();
+            List<int> rclonemap = new List<int>();
             int firstfree = Scope.NextFreeIndex;
             int nextfree = firstfree;
             Statement.PrepareClonedVariables(s, Scope, ref nextfree, clonemap, rclonemap);
             if (clonemap.Count > 0)
             {
                 pe._ClonedVars = rclonemap.ToArray();
-                Scope = new Scope() { Parent = Scope, FunctionalDepth = Scope.FunctionalDepth, Variables = clonemap, NextFreeIndex = nextfree };
+                Scope = new Scope() { Parent = Scope, Variables = clonemap, NextFreeIndex = nextfree };
             }
 
             // Prepare statements
@@ -68,7 +68,7 @@ namespace SaltScript
                 Expression[] stackappend = new Expression[this._ClonedVars.Length];
                 for (int t = 0; t < this._ClonedVars.Length; t++)
                 {
-                    VariableIndex vi = this._ClonedVars[t];
+                    int vi = this._ClonedVars[t];
                     stackappend[t] = Expression.Lookup(vi, Stack);
                     typestackappend[t] = TypeStack.Lookup(vi);
                 }
@@ -89,7 +89,7 @@ namespace SaltScript
             Type = returntype;
         }
 
-        private VariableIndex[] _ClonedVars;
+        private int[] _ClonedVars;
         private Statement _Statement;
     }
 
@@ -103,12 +103,12 @@ namespace SaltScript
         /// procedure cannot modify variables outside of itself, these variables are cloned into the procedure and used instead of the variables
         /// outside the procedure.
         /// </summary>
-        public static void PrepareClonedVariables(Parser.Statement Statement, Scope Scope, ref int NextFree, Dictionary<string, int> ClonedVarMap, List<VariableIndex> RClonedVarMap)
+        public static void PrepareClonedVariables(Parser.Statement Statement, Scope Scope, ref int NextFree, Dictionary<string, int> ClonedVarMap, List<int> RClonedVarMap)
         {
             Parser.AssignStatement aas = Statement as Parser.AssignStatement;
             if(aas != null)
             {
-                VariableIndex vi;
+                int vi;
                 if (Scope.LookupVariable(aas.Variable, out vi))
                 {
                     RClonedVarMap.Add(vi);
@@ -160,14 +160,15 @@ namespace SaltScript
             Scope Scope, 
             ProgramInput Input)
         {
-            Dictionary<string, int> vars;
-            int fd = Scope.FunctionalDepth;
-            Scope = new Scope() { Parent = Scope, FunctionalDepth = fd, Variables = vars = new Dictionary<string,int>(), NextFreeIndex = Scope.NextFreeIndex };
-
             CompoundStatement cs = new CompoundStatement();
             cs._DefinedTypesByStatement = new Dictionary<int, KeyValuePair<int, Expression>>();
             cs._Substatements = new Statement[CompoundStatement.Statements.Count];
             int ss = 0;
+            int sf = Scope.NextFreeIndex;
+            int defined = _Defined(CompoundStatement.Statements);
+
+            Dictionary<string, int> vars;
+            Scope = new Scope() { Parent = Scope, Variables = vars = new Dictionary<string, int>(), NextFreeIndex = sf + defined };
 
             for (int t = 0; t < CompoundStatement.Statements.Count; t++ )
             {
@@ -176,17 +177,18 @@ namespace SaltScript
                 Parser.DefineStatement ds = ps as Parser.DefineStatement;
                 if (ds != null)
                 {
+                    int vs = ss + sf;
                     cs._DefinedTypesByStatement.Add(t, new KeyValuePair<int, Expression>(ss, Expression.Prepare(ds.Type, Scope, Input)));
-                    cs._Substatements[t] = new SetStatement(new VariableIndex(Scope.NextFreeIndex, fd), Expression.Prepare(ds.Value, Scope, Input));
-                    vars.Add(ds.Variable, Scope.NextFreeIndex);
-                    Scope.NextFreeIndex++; ss++; 
+                    cs._Substatements[t] = new SetStatement(vs, Expression.Prepare(ds.Value, Scope, Input));
+                    vars.Add(ds.Variable, vs);
+                    ss++;
                     continue;
                 }
 
                 Parser.AssignStatement aas = ps as Parser.AssignStatement;
                 if (aas != null)
                 {
-                    VariableIndex index;
+                    int index;
                     if (Scope.LookupVariable(aas.Variable, out index))
                     {
                         cs._Substatements[t] = new SetStatement(index, Expression.Prepare(aas.Value, Scope, Input));
@@ -210,6 +212,22 @@ namespace SaltScript
             }
 
             return cs;
+        }
+
+        /// <summary>
+        /// Gets the amount of defined variables in the statements.
+        /// </summary>
+        private static int _Defined(IEnumerable<Parser.Statement> Statements)
+        {
+            int c = 0;
+            foreach (var statement in Statements)
+            {
+                if (statement is Parser.DefineStatement)
+                {
+                    c++;
+                }
+            }
+            return c;
         }
 
         public override Value Call(VariableStack<Value> Stack)
@@ -277,7 +295,7 @@ namespace SaltScript
     /// </summary>
     public class SetStatement : Statement
     {
-        public SetStatement(VariableIndex Variable, Expression Value)
+        public SetStatement(int Variable, Expression Value)
         {
             this._Variable = Variable;
             this._Value = Value;
@@ -298,10 +316,10 @@ namespace SaltScript
             Expression valtype;
             this._Value.TypeCheck(TypeStack, Stack, out sval, out valtype);
 
-            FuzzyBool typeokay = Expression.Equivalent(TypeStack.Lookup(this._Variable), valtype.Reduce(Stack.NextIndex));
+            FuzzyBool typeokay = Expression.Equivalent(TypeStack.Lookup(this._Variable), valtype.Reduce(Stack.NextIndex), Stack);
             if (typeokay == FuzzyBool.True)
             {
-                Stack.Modify(this._Variable, sval.Substitute(Stack));
+                Stack.Modify(this._Variable, sval.Substitute(Stack).Reduce(Stack.NextIndex));
                 TypeSafeStatement = new SetStatement(this._Variable, sval);
                 ReturnType = null;
             }
@@ -311,7 +329,7 @@ namespace SaltScript
             }
         }
 
-        private VariableIndex _Variable;
+        private int _Variable;
         private Expression _Value;
     }
 

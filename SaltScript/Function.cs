@@ -121,7 +121,7 @@ namespace SaltScript
 
         public override Value Call(Value Argument)
         {
-            return this.Expression.Evaluate(this.BaseStack.AppendHigherFunction(new Value[] { Argument }));
+            return this.Expression.Evaluate(this.BaseStack.Append(new Value[] { Argument }));
         }
 
         /// <summary>

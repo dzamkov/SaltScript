@@ -63,7 +63,7 @@ namespace SaltScript
             this.Parts = Parts;
         }
 
-        public override Expression Reduce(VariableIndex LastIndex)
+        public override Expression Reduce(int LastIndex)
         {
             if (this.Parts != null && this.Parts.Length > 0)
             {
@@ -160,7 +160,7 @@ namespace SaltScript
             this.InnerExpression = InnerExpression;
         }
 
-        public override Expression Reduce(VariableIndex NextIndex)
+        public override Expression Reduce(int NextIndex)
         {
             Expression tre = this.SourceTuple.Reduce(NextIndex);
 
@@ -224,10 +224,10 @@ namespace SaltScript
                 }
 
                 stackappend = new Expression[te.Parts.Length];
-                VariableIndex ni = Stack.NextIndex;
+                int ni = Stack.NextIndex;
                 for (int t = 0; t < te.Parts.Length; t++)
                 {
-                    stackappend[t] = Expression.Variable(new VariableIndex(ni.StackIndex + t, ni.FunctionalDepth));
+                    stackappend[t] = Expression.Variable(t + ni);
                 }
             }
 
