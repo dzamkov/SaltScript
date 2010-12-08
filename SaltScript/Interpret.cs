@@ -209,7 +209,14 @@ namespace SaltScript
                 }
             }
             ValIndex = Index - Stack._StartIndex;
-            return true;
+            if (ValIndex < Stack._Values.Length)
+            {
+                return true;
+            }
+            else
+            {
+                return false;
+            }
         }
 
         /// <summary>

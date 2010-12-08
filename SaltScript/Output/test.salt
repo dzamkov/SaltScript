@@ -1,3 +1,4 @@
-<type a><a, a>a left = (type a) => (a x, a y) => x;
-type nint = left(type)(int, int);
-return left(nint)(20, 21);
+<int, int>int add = function(int x, int y) {
+	return x + y;
+};
+return add(6, 7);

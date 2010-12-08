@@ -152,7 +152,7 @@ namespace SaltScript
             Expression res;
             if (Stack.Lookup(Index, out res))
             {
-                return res;
+                return res.Substitute(Stack);
             }
             else
             {
@@ -194,9 +194,8 @@ namespace SaltScript
         }
 
         /// <summary>
-        /// Substitutes all variables in the expression with their corresponding expression in the specified stack. Note that this
-        /// does not guarantee all variables to be removed (some of the substituted expressions may contain variables themselves). The stack may omit
-        /// some variables, in which case, they remain unchanged.
+        /// Substitutes all variables in the expression with their corresponding expression in the specified stack. This guarntees all variables in the stack's range
+        /// to be removed (If all variables only reference variables below them in stack).
         /// </summary>
         public virtual Expression Substitute(VariableStack<Expression> Stack)
         {
@@ -651,7 +650,7 @@ namespace SaltScript
             return new FunctionDefineExpression(
                 this.ArgumentIndex,
                 this.ArgumentType.Substitute(Stack),
-                this.Function.Substitute(Stack.Cut(this.ArgumentIndex).Append(Expression.Variable(this.ArgumentIndex))));
+                this.Function.Substitute(Stack.Cut(this.ArgumentIndex)));
         }
 
         public override void TypeCheck(
