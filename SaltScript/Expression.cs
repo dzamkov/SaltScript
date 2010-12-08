@@ -69,7 +69,7 @@ namespace SaltScript
                 Expression argtype;
                 Expression inner;
                 _PrepareLambda(fde.Arguments, fde.Definition, Scope, Input, out argtype, out inner);
-                return new FunctionDefineExpression(argtype, inner);
+                return new FunctionDefineExpression(Scope.NextFreeIndex, argtype, inner);
             }
 
             // Function type
@@ -80,7 +80,7 @@ namespace SaltScript
                 Expression argtype;
                 Expression inner;
                 _PrepareLambda(fte.ArgumentTypes, fte.ReturnType, Scope, Input, out argtype, out inner);
-                return new FunctionDefineExpression(argtype, inner);
+                return new FunctionDefineExpression(Scope.NextFreeIndex, argtype, inner);
             }
 
             throw new NotImplementedException();
@@ -151,17 +151,7 @@ namespace SaltScript
             Expression res;
             if (Stack.Lookup(Index, out res))
             {
-                VariableExpression ve = res as VariableExpression;
-                if (ve != null)
-                {
-                    if (ve.Index == Index)
-                    {
-                        return ve;
-                    }
-                }
-                
-                // Substitute again until we reach a fixed point.
-                return res.Substitute(Stack);
+                return res;
             }
             else
             {
@@ -243,9 +233,9 @@ namespace SaltScript
         /// <summary>
         /// Creates an expression that acts as a function.
         /// </summary>
-        public static FunctionDefineExpression DefineFunction(Expression ArgumentType, Expression FunctionExpression)
+        public static FunctionDefineExpression DefineFunction(int NextFreeIndex, Expression ArgumentType, Expression FunctionExpression)
         {
-            return new FunctionDefineExpression(ArgumentType, FunctionExpression);
+            return new FunctionDefineExpression(NextFreeIndex, ArgumentType, FunctionExpression);
         }
 
         /// <summary>
@@ -267,9 +257,9 @@ namespace SaltScript
         /// <summary>
         /// Creates an expression for a function type, given the argument type and the return type(which has access to the argument in its current scope).
         /// </summary>
-        public static FunctionDefineExpression FunctionType(Expression ArgumentType, Expression ReturnType)
+        public static FunctionDefineExpression FunctionType(int NextFreeIndex, Expression ArgumentType, Expression ReturnType)
         {
-            return new FunctionDefineExpression(ArgumentType, ReturnType);
+            return new FunctionDefineExpression(NextFreeIndex, ArgumentType, ReturnType);
         }
 
         /// <summary>
@@ -352,46 +342,6 @@ namespace SaltScript
                         if (va.Index == vb.Index)
                         {
                             return FuzzyBool.True;
-                        }
-                        else
-                        {
-                            // Maybe a dereference is needed?
-                            bool vachange = false;
-                            bool vbchange = false;
-                            Expression na;
-                            Expression nb;
-                            if (Stack.Lookup(va.Index, out na))
-                            {
-                                VariableExpression temp = na as VariableExpression;
-                                if (temp == null || temp.Index != va.Index)
-                                {
-                                    vachange = true;
-                                }
-                            }
-                            else
-                            {
-                                na = va;
-                            }
-                            if (Stack.Lookup(vb.Index, out nb))
-                            {
-                                VariableExpression temp = nb as VariableExpression;
-                                if (temp == null || temp.Index != vb.Index)
-                                {
-                                    vbchange = true;
-                                }
-                            }
-                            else
-                            {
-                                nb = vb;
-                            }
-                            if (vachange || vbchange)
-                            {
-                                return Equivalent(ref na, ref nb, Stack);
-                            }
-                            else
-                            {
-                                return FuzzyBool.False;
-                            }
                         }
                     }
                 }
@@ -587,7 +537,7 @@ namespace SaltScript
             FunctionDefineExpression fde = this.Function as FunctionDefineExpression;
             if (fde != null)
             {
-                Reduced = fde.SubstituteCall(Stack.NextIndex, this.Argument);
+                Reduced = fde.SubstituteCall(this.Argument);
                 return true;
             }
 
@@ -663,8 +613,9 @@ namespace SaltScript
     /// </summary>
     public class FunctionDefineExpression : Expression
     {
-        public FunctionDefineExpression(Expression ArgumentType, Expression Function)
+        public FunctionDefineExpression(int ArgumentIndex, Expression ArgumentType, Expression Function)
         {
+            this.ArgumentIndex = ArgumentIndex;
             this.ArgumentType = ArgumentType;
             this.Function = Function;
         }
@@ -672,9 +623,9 @@ namespace SaltScript
         /// <summary>
         /// Creates an expression that represents the return value of the function when supplied with an argument.
         /// </summary>
-        public Expression SubstituteCall(int NextFreeIndex, Expression Argument)
+        public Expression SubstituteCall(Expression Argument)
         {
-            return this.Function.SubstituteOne(NextFreeIndex, Argument).Compress(NextFreeIndex, 1);
+            return this.Function.SubstituteOne(this.ArgumentIndex, Argument).Compress(this.ArgumentIndex, 1);
         }
 
         public override Value Evaluate(VariableStack<Value> Stack)
@@ -685,6 +636,7 @@ namespace SaltScript
         public override Expression Compress(int Start, int Amount)
         {
             return new FunctionDefineExpression(
+                this.ArgumentIndex - 1,
                 this.ArgumentType.Compress(Start, Amount),
                 this.Function.Compress(Start, Amount));
         }
@@ -692,6 +644,7 @@ namespace SaltScript
         public override Expression Substitute(VariableStack<Expression> Stack)
         {
             return new FunctionDefineExpression(
+                this.ArgumentIndex,
                 this.ArgumentType.Substitute(Stack),
                 this.Function.Substitute(
                     Stack.Append(new Expression[] { Expression.Variable(Stack.NextIndex) })));
@@ -708,9 +661,14 @@ namespace SaltScript
                 TypeStack.Append(new Expression[] { this.ArgumentType }), 
                 Stack.Append(new Expression[] { Expression.Variable(Stack.NextIndex) }), 
                 out sifunc, out itype);
-            Type = Expression.FunctionType(this.ArgumentType, itype);
-            TypeSafeExpression = new FunctionDefineExpression(this.ArgumentType, sifunc);
+            Type = Expression.FunctionType(Stack.NextIndex, this.ArgumentType, itype);
+            TypeSafeExpression = new FunctionDefineExpression(this.ArgumentIndex, this.ArgumentType, sifunc);
         }
+
+        /// <summary>
+        /// The index of the argument given to Function. The function may access any variable with an index lower than this.
+        /// </summary>
+        public int ArgumentIndex;
 
         /// <summary>
         /// The type of the argument to the created function.

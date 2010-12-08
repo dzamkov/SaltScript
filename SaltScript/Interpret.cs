@@ -210,6 +210,17 @@ namespace SaltScript
         }
 
         /// <summary>
+        /// Gets the next free variable index after the input.
+        /// </summary>
+        public int NextFreeIndex
+        {
+            get
+            {
+                return this._RootVariables.Count;
+            }
+        }
+
+        /// <summary>
         /// Gets the type integer literals are assigned with.
         /// </summary>
         public abstract Expression IntegerLiteralType { get; }

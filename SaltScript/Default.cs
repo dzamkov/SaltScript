@@ -120,7 +120,7 @@ namespace SaltScript
 
             public Expression AddBinaryFunction(string Name, Expression TypeA, Expression TypeB, Expression ReturnType, BinaryFunction Handler)
             {
-                return this.AddRootVariable(Name, Expression.FunctionType(Expression.Tuple(TypeA, TypeB), ReturnType),
+                return this.AddRootVariable(Name, Expression.FunctionType(this.NextFreeIndex, Expression.Tuple(TypeA, TypeB), ReturnType),
                     new BinaryFunctionValue() { Function = Handler });
             }
 
