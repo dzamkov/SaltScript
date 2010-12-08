@@ -321,128 +321,143 @@ namespace SaltScript
         }
 
         /// <summary>
-        /// Simplifies the expression, given the last variable index in the current scope. This is should only
-        /// be used on type-checked expressions.
+        /// Tries to gradually simplifies the expression. Can possibly access the stack to dereference a variable and modify
+        /// an expression on the stack to give a equivalent reduced expression. The reduced expression 
         /// </summary>
-        public virtual Expression Reduce(int NextIndex)
+        public virtual bool Reduce(VariableStack<Expression> Stack, ref Expression Reduced)
         {
-            return this;
+            return false;
         }
 
         /// <summary>
-        /// Gets if the two specified reduced expressions are equivalent.
+        /// Gets if the two specified expressions are equivalent. This function reduces and subsitutes 
+        /// given expressions and the stack as needed to get an accurate result.
         /// </summary>
-        public static FuzzyBool Equivalent(Expression A, Expression B, VariableStack<Expression> Stack)
+        public static FuzzyBool Equivalent(ref Expression A, ref Expression B, VariableStack<Expression> Stack)
         {
             if (A == B)
             {
                 return FuzzyBool.True;
             }
 
-            // Variable equality
-            VariableExpression va = A as VariableExpression;
-            if (va != null)
+            while (true)
             {
-                VariableExpression vb = B as VariableExpression;
-                if (vb != null)
+                // Variable equality
+                VariableExpression va = A as VariableExpression;
+                if (va != null)
                 {
-                    if (va.Index == vb.Index)
+                    VariableExpression vb = B as VariableExpression;
+                    if (vb != null)
                     {
+                        if (va.Index == vb.Index)
+                        {
+                            return FuzzyBool.True;
+                        }
+                        else
+                        {
+                            // Maybe a dereference is needed?
+                            bool vachange = false;
+                            bool vbchange = false;
+                            Expression na;
+                            Expression nb;
+                            if (Stack.Lookup(va.Index, out na))
+                            {
+                                VariableExpression temp = na as VariableExpression;
+                                if (temp == null || temp.Index != va.Index)
+                                {
+                                    vachange = true;
+                                }
+                            }
+                            else
+                            {
+                                na = va;
+                            }
+                            if (Stack.Lookup(vb.Index, out nb))
+                            {
+                                VariableExpression temp = nb as VariableExpression;
+                                if (temp == null || temp.Index != vb.Index)
+                                {
+                                    vbchange = true;
+                                }
+                            }
+                            else
+                            {
+                                nb = vb;
+                            }
+                            if (vachange || vbchange)
+                            {
+                                return Equivalent(ref na, ref nb, Stack);
+                            }
+                            else
+                            {
+                                return FuzzyBool.False;
+                            }
+                        }
+                    }
+                }
+
+                // Tuple equality
+                TupleExpression at = A as TupleExpression;
+                if (at != null)
+                {
+                    TupleExpression bt = B as TupleExpression;
+                    if (bt != null)
+                    {
+                        if (at.Parts.Length != bt.Parts.Length)
+                        {
+                            return FuzzyBool.False;
+                        }
+                        for (int t = 0; t < at.Parts.Length; t++)
+                        {
+                            FuzzyBool pe = Equivalent(ref at.Parts[t], ref bt.Parts[t], Stack);
+                            if (pe == FuzzyBool.False)
+                            {
+                                return FuzzyBool.False;
+                            }
+                            if (pe == FuzzyBool.Undetermined)
+                            {
+                                return FuzzyBool.Undetermined;
+                            }
+                        }
                         return FuzzyBool.True;
                     }
-                    else
+                }
+
+                // Tuple break
+                TupleBreakExpression atb = A as TupleBreakExpression;
+                if (atb != null)
+                {
+                    TupleBreakExpression btb = B as TupleBreakExpression;
+                    if (btb != null)
                     {
-                        // Maybe a dereference is needed?
-                        bool vachange = false;
-                        bool vbchange = false;
-                        Expression na;
-                        Expression nb;
-                        if (Stack.Lookup(va.Index, out na))
-                        {
-                            VariableExpression temp = na as VariableExpression;
-                            if (temp == null || temp.Index != va.Index)
-                            {
-                                vachange = true;
-                            }
-                        }
-                        else
-                        {
-                            na = va;
-                        }
-                        if (Stack.Lookup(vb.Index, out nb))
-                        {
-                            VariableExpression temp = nb as VariableExpression;
-                            if (temp == null || temp.Index != vb.Index)
-                            {
-                                vbchange = true;
-                            }
-                        }
-                        else
-                        {
-                            nb = vb;
-                        }
-                        if (vachange || vbchange)
-                        {
-                            return Equivalent(na, nb, Stack);
-                        }
-                        else
-                        {
-                            return FuzzyBool.False;
-                        }
+                        return FuzzyBoolLogic.And(
+                            Expression.Equivalent(ref atb.SourceTuple, ref btb.SourceTuple, Stack),
+                            Expression.Equivalent(ref atb.InnerExpression, ref btb.InnerExpression, Stack));
                     }
                 }
-            }
 
-            // Tuple equality
-            TupleExpression at = A as TupleExpression;
-            if (at != null)
-            {
-                TupleExpression bt = B as TupleExpression;
-                if (bt != null)
+                // Function definition equality
+                FunctionDefineExpression afd = A as FunctionDefineExpression;
+                if (afd != null)
                 {
-                    if (at.Parts.Length != bt.Parts.Length)
+                    FunctionDefineExpression bfd = B as FunctionDefineExpression;
+                    if (bfd != null)
                     {
-                        return FuzzyBool.False;
+                        return FuzzyBoolLogic.And(
+                            Expression.Equivalent(ref afd.ArgumentType, ref bfd.ArgumentType, Stack),
+                            Expression.Equivalent(ref afd.Function, ref bfd.Function, Stack));
                     }
-                    for (int t = 0; t < at.Parts.Length; t++)
-                    {
-                        FuzzyBool pe = Equivalent(at.Parts[t], bt.Parts[t], Stack);
-                        if (pe == FuzzyBool.False)
-                        {
-                            return FuzzyBool.False;
-                        }
-                        if (pe == FuzzyBool.Undetermined)
-                        {
-                            return FuzzyBool.Undetermined;
-                        }
-                    }
-                    return FuzzyBool.True;
                 }
-            }
 
-            // Tuple break
-            TupleBreakExpression atb = A as TupleBreakExpression;
-            if (atb != null)
-            {
-                TupleBreakExpression btb = B as TupleBreakExpression;
-                if (btb != null)
+
+                // Nothing yet? try reducing
+                if (A.Reduce(Stack, ref A) | B.Reduce(Stack, ref B))
                 {
-                    return FuzzyBoolLogic.And(
-                        Expression.Equivalent(atb.SourceTuple, btb.SourceTuple, Stack),
-                        Expression.Equivalent(atb.InnerExpression, btb.InnerExpression, Stack));
+                    continue;
                 }
-            }
-
-            // Function definition equality
-            FunctionDefineExpression afd = A as FunctionDefineExpression;
-            if (afd != null)
-            {
-                FunctionDefineExpression bfd = B as FunctionDefineExpression;
-                if (bfd != null)
+                else
                 {
-                    return FuzzyBoolLogic.And(
-                        Expression.Equivalent(afd.ArgumentType, bfd.ArgumentType, Stack),
-                        Expression.Equivalent(afd.Function, bfd.Function, Stack));
+                    break;
                 }
             }
 
@@ -500,6 +515,26 @@ namespace SaltScript
             this.Index = Index;
         }
 
+        public override bool Reduce(VariableStack<Expression> Stack, ref Expression Reduced)
+        {
+            // Only possible way to reduce a variable is to replace it with its value.
+            Expression possible;
+            if (Stack.Lookup(this.Index, out possible))
+            {
+                VariableExpression ve = possible as VariableExpression;
+                if (ve != null)
+                {
+                    if (ve.Index == this.Index)
+                    {
+                        return false;
+                    }
+                }
+                Reduced = possible;
+                return true;
+            }
+            return false;
+        }
+
         public override Value Evaluate(VariableStack<Value> Stack)
         {
             return Stack.Lookup(this.Index);
@@ -546,19 +581,26 @@ namespace SaltScript
             this.Argument = Argument;
         }
 
-        public override Expression Reduce(int LastIndex)
+        public override bool Reduce(VariableStack<Expression> Stack, ref Expression Reduced)
         {
-            Expression freduce = this.Function.Reduce(LastIndex);
-            Expression areduce = this.Argument.Reduce(LastIndex);
-
-            // If the function is a lambda, call it.
-            FunctionDefineExpression fde = freduce as FunctionDefineExpression;
+            // Beta reduction (substituting an argument in a function definition)
+            FunctionDefineExpression fde = this.Function as FunctionDefineExpression;
             if (fde != null)
             {
-                return fde.Function.Substitute(new VariableStack<Expression>(LastIndex + 1, new Expression[] { areduce })).Reduce(LastIndex);
+                Reduced = fde.SubstituteCall(Stack.NextIndex, this.Argument);
+                return true;
             }
 
-            return new FunctionCallExpression(freduce, areduce);
+            // Recursive reduction
+            Expression fre = this.Function;
+            Expression are = this.Argument;
+            if (fre.Reduce(Stack, ref fre) | are.Reduce(Stack, ref are))
+            {
+                Reduced = new FunctionCallExpression(fre, are);
+                return true;
+            }
+
+            return false;
         }
 
         public override Value Evaluate(VariableStack<Value> Stack)
@@ -570,7 +612,7 @@ namespace SaltScript
         {
             return new FunctionCallExpression(this.Function.Substitute(Variables), this.Argument.Substitute(Variables));
         }
-
+        
         public override void TypeCheck(
             VariableStack<Expression> TypeStack,
             VariableStack<Expression> Stack,
@@ -582,8 +624,8 @@ namespace SaltScript
             Expression functype;
             this.Function.TypeCheck(TypeStack, Stack, out sfunc, out functype);
 
-            functype = functype.Reduce(li);
-            FunctionDefineExpression fte = functype as FunctionDefineExpression;
+            FunctionDefineExpression fte;
+            while ((fte = functype as FunctionDefineExpression) == null && functype.Reduce(Stack, ref functype)) ;
             if (fte == null)
             {
                 throw new NotCallableException(this);
@@ -593,7 +635,7 @@ namespace SaltScript
             Expression argtype;
             this.Argument.TypeCheck(TypeStack, Stack, out sarg, out argtype);
 
-            FuzzyBool typeokay = Expression.Equivalent(argtype.Reduce(li), fte.ArgumentType, Stack);
+            FuzzyBool typeokay = Expression.Equivalent(ref argtype, ref fte.ArgumentType, Stack);
             if (typeokay != FuzzyBool.True)
             {
                 throw new TypeCheckException(this);
@@ -627,14 +669,24 @@ namespace SaltScript
             this.Function = Function;
         }
 
-        public override Expression Reduce(int NextIndex)
+        /// <summary>
+        /// Creates an expression that represents the return value of the function when supplied with an argument.
+        /// </summary>
+        public Expression SubstituteCall(int NextFreeIndex, Expression Argument)
         {
-            return new FunctionDefineExpression(this.ArgumentType.Reduce(NextIndex), this.Function.Reduce(NextIndex + 1));
+            return this.Function.SubstituteOne(NextFreeIndex, Argument).Compress(NextFreeIndex, 1);
         }
 
         public override Value Evaluate(VariableStack<Value> Stack)
         {
             return new ExpressionFunction(Stack, this.Function);
+        }
+
+        public override Expression Compress(int Start, int Amount)
+        {
+            return new FunctionDefineExpression(
+                this.ArgumentType.Compress(Start, Amount),
+                this.Function.Compress(Start, Amount));
         }
 
         public override Expression Substitute(VariableStack<Expression> Stack)

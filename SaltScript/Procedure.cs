@@ -265,7 +265,7 @@ namespace SaltScript
                 KeyValuePair<int, Expression> defineinfo;
                 if (this._DefinedTypesByStatement.TryGetValue(t, out defineinfo))
                 {
-                    types[defineinfo.Key] = defineinfo.Value.Substitute(Stack).Reduce(Stack.NextIndex);
+                    types[defineinfo.Key] = defineinfo.Value.Substitute(Stack);
                 }
 
                 Statement s = this._Substatements[t];
@@ -316,10 +316,17 @@ namespace SaltScript
             Expression valtype;
             this._Value.TypeCheck(TypeStack, Stack, out sval, out valtype);
 
-            FuzzyBool typeokay = Expression.Equivalent(TypeStack.Lookup(this._Variable), valtype.Reduce(Stack.NextIndex), Stack);
+            Expression vartype = TypeStack.Lookup(this._Variable);
+            Expression nvartype = vartype;
+            FuzzyBool typeokay = Expression.Equivalent(ref nvartype, ref valtype, Stack);
+            if (nvartype != vartype)
+            {
+                // nvartype is a reduced form of vartype, save it.
+                TypeStack.Modify(this._Variable, nvartype);
+            }
             if (typeokay == FuzzyBool.True)
             {
-                Stack.Modify(this._Variable, sval.Substitute(Stack).Reduce(Stack.NextIndex));
+                Stack.Modify(this._Variable, sval);
                 TypeSafeStatement = new SetStatement(this._Variable, sval);
                 ReturnType = null;
             }

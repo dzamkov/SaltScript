@@ -1,7 +1,2 @@
-<int><int>int add = function(int a) {
-	return function(int b) {
-		return a + b;
-	};
-};
-<int>int add5 = add(5);
-return add5(16);
+<type a><a>a identity = (type a) => (a x) => x;
+return identity(identity(type)(int))(15);
