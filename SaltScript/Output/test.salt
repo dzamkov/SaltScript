@@ -1,4 +1,2 @@
-<type a><a>a identity = (type a) => (a x) => x;
-type ntype = identity(type)(type);
-type nint = identity(identity(identity(type)(type))(type))(int);
-return identity(nint)(31);
+<type a><a, a>a left = (type a) => (a x, a y) => x;
+return left(int)(20, 21);

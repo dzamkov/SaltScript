@@ -126,6 +126,23 @@ namespace SaltScript
         }
 
         /// <summary>
+        /// Cuts off the top of the stack starting at the specified index.
+        /// </summary>
+        public VariableStack<TValue> Cut(int To)
+        {
+            if (this.NextIndex > To)
+            {
+                return new VariableStack<TValue>()
+                {
+                    _Lower = this,
+                    _StartIndex = To,
+                    _Values = new TValue[0]
+                };
+            }
+            return this;
+        }
+
+        /// <summary>
         /// Gets the value for the variable with the specified start index and functional depth.
         /// </summary>
         public TValue Lookup(int Index)

@@ -143,6 +143,22 @@ namespace SaltScript
             this.InnerExpression = InnerExpression;
         }
 
+        public override Expression Compress(int Start, int Amount)
+        {
+            return new TupleBreakExpression(
+                this.TupleSize,
+                this.SourceTuple.Compress(Start, Amount),
+                this.InnerExpression.Compress(Start, Amount));
+        }
+
+        public override Expression Substitute(VariableStack<Expression> Stack)
+        {
+            return new TupleBreakExpression(
+                this.TupleSize,
+                this.SourceTuple.Substitute(Stack),
+                this.InnerExpression.Substitute(Stack));
+        }
+
         public override bool Reduce(VariableStack<Expression> Stack, ref Expression Reduced)
         {
             // Wouldn't it be hilarious if the inner expression never even used the tuple's data?
@@ -188,14 +204,14 @@ namespace SaltScript
             this.SourceTuple.TypeCheck(TypeStack, Stack, out stuple, out tupletype);
 
             TupleExpression te;
-            while ((te = tupletype as TupleExpression) == null && Reduce(Stack, ref tupletype)) ;
+            while ((te = tupletype as TupleExpression) == null && tupletype.Reduce(Stack, ref tupletype)) ;
             if (te == null)
             {
                 throw new NotImplementedException();
             }
 
             TupleExpression se;
-            while ((se = stuple as TupleExpression) == null && Reduce(Stack, ref stuple)) ;
+            while ((se = stuple as TupleExpression) == null && stuple.Reduce(Stack, ref stuple)) ;
             Expression[] stackappend;
             if (se != null)
             {

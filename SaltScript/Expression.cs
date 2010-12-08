@@ -393,9 +393,13 @@ namespace SaltScript
                     FunctionDefineExpression bfd = B as FunctionDefineExpression;
                     if (bfd != null)
                     {
-                        return FuzzyBoolLogic.And(
-                            Expression.Equivalent(ref afd.ArgumentType, ref bfd.ArgumentType, Stack),
-                            Expression.Equivalent(ref afd.Function, ref bfd.Function, Stack));
+                        if (afd.ArgumentIndex == bfd.ArgumentIndex)
+                        {
+                            var nstack = Stack.Cut(afd.ArgumentIndex).Append(new Expression[] { Expression.Variable(afd.ArgumentIndex) });
+                            return FuzzyBoolLogic.And(
+                                Expression.Equivalent(ref afd.ArgumentType, ref bfd.ArgumentType, nstack),
+                                Expression.Equivalent(ref afd.Function, ref bfd.Function, nstack));
+                        }
                     }
                 }
 
@@ -630,7 +634,7 @@ namespace SaltScript
 
         public override Value Evaluate(VariableStack<Value> Stack)
         {
-            return new ExpressionFunction(Stack, this.Function);
+            return new ExpressionFunction(Stack.Cut(this.ArgumentIndex), this.Function);
         }
 
         public override Expression Compress(int Start, int Amount)
@@ -658,10 +662,10 @@ namespace SaltScript
             Expression sifunc;
             Expression itype;
             this.Function.TypeCheck(
-                TypeStack.Append(new Expression[] { this.ArgumentType }), 
-                Stack.Append(new Expression[] { Expression.Variable(Stack.NextIndex) }), 
+                TypeStack.Cut(this.ArgumentIndex).Append(new Expression[] { this.ArgumentType }), 
+                Stack.Cut(this.ArgumentIndex).Append(new Expression[] { Expression.Variable(Stack.NextIndex) }), 
                 out sifunc, out itype);
-            Type = Expression.FunctionType(Stack.NextIndex, this.ArgumentType, itype);
+            Type = Expression.FunctionType(this.ArgumentIndex, this.ArgumentType, itype);
             TypeSafeExpression = new FunctionDefineExpression(this.ArgumentIndex, this.ArgumentType, sifunc);
         }
 
