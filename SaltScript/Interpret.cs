@@ -113,6 +113,19 @@ namespace SaltScript
         }
 
         /// <summary>
+        /// Appends a single value to the stack.
+        /// </summary>
+        public VariableStack<TValue> Append(TValue Value)
+        {
+            return new VariableStack<TValue>()
+            {
+                _Lower = this,
+                _StartIndex = this._StartIndex + this._Values.Length,
+                _Values = new TValue[] { Value }
+            };
+        }
+
+        /// <summary>
         /// Appends the specified amount of variables on the stack.
         /// </summary>
         public VariableStack<TValue> Append(int Amount)

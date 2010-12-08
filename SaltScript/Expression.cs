@@ -138,6 +138,7 @@ namespace SaltScript
             }
             ArgumentType = Expression.Tuple(types);
             PreparedInner = Expression.BreakTuple(
+                argloc + 1,
                 Arguments.Count,
                 Expression.Variable(argloc), 
                 Prepare(Inner, nscope, Input));
@@ -297,9 +298,9 @@ namespace SaltScript
         /// <summary>
         /// Creates an expression that causes the parts in tuple to be used in the stack of the inner expression.
         /// </summary>
-        public static TupleBreakExpression BreakTuple(int Size, Expression Tuple, Expression Inner)
+        public static TupleBreakExpression BreakTuple(int NextFreeIndex, int Size, Expression Tuple, Expression Inner)
         {
-            return new TupleBreakExpression(Size, Tuple, Inner);
+            return new TupleBreakExpression(NextFreeIndex, Size, Tuple, Inner);
         }
 
         /// <summary>
@@ -640,7 +641,7 @@ namespace SaltScript
         public override Expression Compress(int Start, int Amount)
         {
             return new FunctionDefineExpression(
-                this.ArgumentIndex - 1,
+                this.ArgumentIndex - Amount,
                 this.ArgumentType.Compress(Start, Amount),
                 this.Function.Compress(Start, Amount));
         }
@@ -650,8 +651,7 @@ namespace SaltScript
             return new FunctionDefineExpression(
                 this.ArgumentIndex,
                 this.ArgumentType.Substitute(Stack),
-                this.Function.Substitute(
-                    Stack.Append(new Expression[] { Expression.Variable(Stack.NextIndex) })));
+                this.Function.Substitute(Stack.Cut(this.ArgumentIndex).Append(Expression.Variable(this.ArgumentIndex))));
         }
 
         public override void TypeCheck(

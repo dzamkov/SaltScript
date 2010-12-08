@@ -63,6 +63,23 @@ namespace SaltScript
             this.Parts = Parts;
         }
 
+        public override Expression Compress(int Start, int Amount)
+        {
+            if (this.Parts == null)
+            {
+                return Empty;
+            }
+            Expression[] nparts = new Expression[this.Parts.Length];
+            for (int t = 0; t < nparts.Length; t++)
+            {
+                if ((nparts[t] = this.Parts[t].Compress(Start, Amount)) == null)
+                {
+                    return null;
+                }
+            }
+            return new TupleExpression(nparts);
+        }
+
         public override Value Evaluate(VariableStack<Value> Stack)
         {
             if (this.Parts != null)
@@ -136,8 +153,9 @@ namespace SaltScript
     /// </summary>
     public class TupleBreakExpression : Expression
     {
-        public TupleBreakExpression(int TupleSize, Expression Tuple, Expression InnerExpression)
+        public TupleBreakExpression(int BreakIndex, int TupleSize, Expression Tuple, Expression InnerExpression)
         {
+            this.BreakIndex = BreakIndex;
             this.TupleSize = TupleSize;
             this.SourceTuple = Tuple;
             this.InnerExpression = InnerExpression;
@@ -145,24 +163,50 @@ namespace SaltScript
 
         public override Expression Compress(int Start, int Amount)
         {
-            return new TupleBreakExpression(
-                this.TupleSize,
-                this.SourceTuple.Compress(Start, Amount),
-                this.InnerExpression.Compress(Start, Amount));
+            Expression source = this.SourceTuple.Compress(Start, Amount);
+            Expression inner = this.InnerExpression.Compress(Start, Amount);
+            if (source != null && inner != null)
+            {
+                return new TupleBreakExpression(this.BreakIndex - Amount, this.TupleSize, source, inner);
+            }
+            else
+            {
+                return null;
+            }
         }
 
         public override Expression Substitute(VariableStack<Expression> Stack)
         {
             return new TupleBreakExpression(
+                this.BreakIndex,
                 this.TupleSize,
                 this.SourceTuple.Substitute(Stack),
-                this.InnerExpression.Substitute(Stack));
+                this.InnerExpression.Substitute(this._CreateInner(Stack)));
+        }
+
+        private VariableStack<Expression> _CreateInner(VariableStack<Expression> Source)
+        {
+            Expression[] stackappend = new Expression[this.TupleSize];
+            for (int t = 0; t < stackappend.Length; t++)
+            {
+                stackappend[t] = Expression.Variable(this.BreakIndex + t);
+            }
+            return Source.Cut(this.BreakIndex).Append(stackappend);
         }
 
         public override bool Reduce(VariableStack<Expression> Stack, ref Expression Reduced)
         {
+            // Is the source tuple an actual tuple?
+            TupleExpression te = this.SourceTuple as TupleExpression;
+            if (te != null)
+            {
+                // Now we got this :D
+                Reduced = this.InnerExpression.Substitute(VariableStack<Expression>.Empty(this.BreakIndex).Append(te.Parts));
+                return true;
+            }
+
             // Wouldn't it be hilarious if the inner expression never even used the tuple's data?
-            Expression cire = this.InnerExpression.Compress(Stack.NextIndex, this.TupleSize);
+            Expression cire = this.InnerExpression.Compress(this.BreakIndex, this.TupleSize);
             if (cire != null)
             {
                 Reduced = cire;
@@ -172,9 +216,9 @@ namespace SaltScript
             // Nope, guess i'll have to do it the normal way :(
             Expression tre = this.SourceTuple;
             Expression ire = this.InnerExpression;
-            if (tre.Reduce(Stack, ref tre) | ire.Reduce(Stack, ref ire))
+            if (tre.Reduce(Stack, ref tre) | ire.Reduce(this._CreateInner(Stack), ref ire))
             {
-                Reduced = new TupleBreakExpression(this.TupleSize, tre, ire);
+                Reduced = new TupleBreakExpression(this.BreakIndex, this.TupleSize, tre, ire);
                 return true;
             }
 
@@ -239,14 +283,19 @@ namespace SaltScript
             Expression si;
             Expression itype;
             this.InnerExpression.TypeCheck(
-                TypeStack.Append(te.Parts ?? new Expression[0]),
-                Stack.Append(stackappend),
+                TypeStack.Cut(this.BreakIndex).Append(te.Parts ?? new Expression[0]),
+                Stack.Cut(this.BreakIndex).Append(stackappend),
                 out si,
                 out itype);
 
-            TypeSafeExpression = new TupleBreakExpression(this.TupleSize, stuple, si);
+            TypeSafeExpression = new TupleBreakExpression(this.BreakIndex, this.TupleSize, stuple, si);
             Type = itype;
         }
+
+        /// <summary>
+        /// The index of the first variable broken from the tuple.
+        /// </summary>
+        public int BreakIndex;
 
         /// <summary>
         /// The size of the source tuple.

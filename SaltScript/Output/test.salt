@@ -1,2 +1,3 @@
 <type a><a, a>a left = (type a) => (a x, a y) => x;
-return left(int)(20, 21);
+type nint = left(type)(int, int);
+return left(nint)(20, 21);
