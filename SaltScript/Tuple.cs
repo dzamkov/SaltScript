@@ -80,7 +80,7 @@ namespace SaltScript
             return new TupleExpression(nparts);
         }
 
-        public override Value Evaluate(VariableStack<Value> Stack)
+        public override Value Evaluate(IMutableVariableStack<Value> Stack)
         {
             if (this.Parts != null)
             {
@@ -97,14 +97,14 @@ namespace SaltScript
             }
         }
 
-        public override Expression Substitute(VariableStack<Expression> Stack)
+        public override Expression Substitute(IVariableMap<Expression> Map)
         {
             if (this.Parts != null)
             {
                 Expression[] subs = new Expression[this.Parts.Length];
                 for (int t = 0; t < this.Parts.Length; t++)
                 {
-                    subs[t] = this.Parts[t].Substitute(Stack);
+                    subs[t] = this.Parts[t].Substitute(Map);
                 }
                 return new TupleExpression(subs);
             }
@@ -115,8 +115,8 @@ namespace SaltScript
         }
 
         public override void TypeCheck(
-            VariableStack<Expression> TypeStack,
-            VariableStack<Expression> Stack,
+            IVariableStack<Expression> TypeStack,
+            IVariableStack<Expression> Stack,
             out Expression TypeSafeExpression, out Expression Type)
         {
             if (this.Parts != null && this.Parts.Length != 0)
@@ -175,33 +175,36 @@ namespace SaltScript
             }
         }
 
-        public override Expression Substitute(VariableStack<Expression> Stack)
+        public override Expression Substitute(IVariableMap<Expression> Map)
         {
             return new TupleBreakExpression(
                 this.BreakIndex,
                 this.TupleSize,
-                this.SourceTuple.Substitute(Stack),
-                this.InnerExpression.Substitute(this._CreateInner(Stack)));
+                this.SourceTuple.Substitute(Map),
+                this.InnerExpression.Substitute(this._CreateInner(Map)));
         }
 
-        private VariableStack<Expression> _CreateInner(VariableStack<Expression> Source)
+        private IVariableMap<Expression> _CreateInner(IVariableMap<Expression> Source)
         {
             Expression[] stackappend = new Expression[this.TupleSize];
             for (int t = 0; t < stackappend.Length; t++)
             {
                 stackappend[t] = Expression.Variable(this.BreakIndex + t);
             }
-            return Source.Cut(this.BreakIndex).Append(stackappend);
+            return new SwitchMap<Expression>(
+                this.BreakIndex,
+                Source,
+                new SimpleMap<Expression>(this.BreakIndex, stackappend));
         }
 
-        public override bool Reduce(VariableStack<Expression> Stack, ref Expression Reduced)
+        public override bool Reduce(IVariableMap<Expression> Map, ref Expression Reduced)
         {
             // Is the source tuple an actual tuple?
             TupleExpression te = this.SourceTuple as TupleExpression;
             if (te != null)
             {
                 // Now we got this :D
-                Reduced = this.InnerExpression.Substitute(VariableStack<Expression>.Empty(this.BreakIndex).Append(te.Parts));
+                Reduced = this.InnerExpression.Substitute(new SimpleMap<Expression>(this.BreakIndex, te.Parts));
                 return true;
             }
 
@@ -216,7 +219,7 @@ namespace SaltScript
             // Nope, guess i'll have to do it the normal way :(
             Expression tre = this.SourceTuple;
             Expression ire = this.InnerExpression;
-            if (tre.Reduce(Stack, ref tre) | ire.Reduce(this._CreateInner(Stack), ref ire))
+            if (tre.Reduce(Map, ref tre) | ire.Reduce(this._CreateInner(Map), ref ire))
             {
                 Reduced = new TupleBreakExpression(this.BreakIndex, this.TupleSize, tre, ire);
                 return true;
@@ -225,12 +228,12 @@ namespace SaltScript
             return false;
         }
 
-        public override Value Evaluate(VariableStack<Value> Stack)
+        public override Value Evaluate(IMutableVariableStack<Value> Stack)
         {
             TupleValue tuple = (TupleValue)this.SourceTuple.Evaluate(Stack);
             if (tuple.Values != null)
             {
-                return this.InnerExpression.Evaluate(Stack.Append(tuple.Values));
+                return this.InnerExpression.Evaluate((IMutableVariableStack<Value>)Stack.Append(tuple.Values));
             }
             else
             {
@@ -239,8 +242,8 @@ namespace SaltScript
         }
 
         public override void TypeCheck(
-            VariableStack<Expression> TypeStack, 
-            VariableStack<Expression> Stack, 
+            IVariableStack<Expression> TypeStack, 
+            IVariableStack<Expression> Stack, 
             out Expression TypeSafeExpression, out Expression Type)
         {
             Expression stuple;
@@ -273,7 +276,7 @@ namespace SaltScript
                 }
 
                 stackappend = new Expression[te.Parts.Length];
-                int ni = Stack.NextIndex;
+                int ni = Stack.NextFreeIndex;
                 for (int t = 0; t < te.Parts.Length; t++)
                 {
                     stackappend[t] = Expression.Variable(t + ni);

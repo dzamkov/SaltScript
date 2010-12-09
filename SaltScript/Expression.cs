@@ -147,12 +147,12 @@ namespace SaltScript
         /// <summary>
         /// Looks up or "dereferences" a variable with the given index in the specified stack.
         /// </summary>
-        public static Expression Lookup(int Index, VariableStack<Expression> Stack)
+        public static Expression Lookup(int Index, IVariableMap<Expression> Map)
         {
-            Expression res;
-            if (Stack.Lookup(Index, out res))
+            Expression res = null;
+            if (Map.Lookup(Index, ref res))
             {
-                return res.Substitute(Stack);
+                return res.Substitute(Map);
             }
             else
             {
@@ -188,16 +188,16 @@ namespace SaltScript
         /// <summary>
         /// Evaluates the expression with the given immediate value stack.
         /// </summary>
-        public virtual Value Evaluate(VariableStack<Value> Stack)
+        public virtual Value Evaluate(IMutableVariableStack<Value> Stack)
         {
             return null;
         }
 
         /// <summary>
-        /// Substitutes all variables in the expression with their corresponding expression in the specified stack. This guarntees all variables in the stack's range
+        /// Substitutes all variables in the expression with their corresponding expression in the specified map. This guarntees all variables in the stack's range
         /// to be removed (If all variables only reference variables below them in stack).
         /// </summary>
-        public virtual Expression Substitute(VariableStack<Expression> Stack)
+        public virtual Expression Substitute(IVariableMap<Expression> Map)
         {
             return this;
         }
@@ -207,7 +207,7 @@ namespace SaltScript
         /// </summary>
         public Expression SubstituteOne(int Index, Expression Value)
         {
-            return this.Substitute(VariableStack<Expression>.Empty(Index).Append(new Expression[] { Value }));
+            return this.Substitute(new SingleVariableMap<Expression>(Index, Value));
         }
 
         /// <summary>
@@ -215,8 +215,8 @@ namespace SaltScript
         /// be thrown if this is not possible.
         /// </summary>
         public abstract void TypeCheck(
-            VariableStack<Expression> TypeStack, 
-            VariableStack<Expression> Stack,
+            IVariableStack<Expression> TypeStack, 
+            IVariableStack<Expression> Stack,
             out Expression TypeSafeExpression, out Expression Type);
 
         /// <summary>
@@ -311,10 +311,9 @@ namespace SaltScript
         }
 
         /// <summary>
-        /// Tries to gradually simplifies the expression. Can possibly access the stack to dereference a variable and modify
-        /// an expression on the stack to give a equivalent reduced expression. The reduced expression 
+        /// Tries to gradually simplifies the expression. Can possibly access the map to dereference a variable.
         /// </summary>
-        public virtual bool Reduce(VariableStack<Expression> Stack, ref Expression Reduced)
+        public virtual bool Reduce(IVariableMap<Expression> Map, ref Expression Reduced)
         {
             return false;
         }
@@ -323,7 +322,7 @@ namespace SaltScript
         /// Gets if the two specified expressions are equivalent. This function reduces and subsitutes 
         /// given expressions and the stack as needed to get an accurate result.
         /// </summary>
-        public static FuzzyBool Equivalent(ref Expression A, ref Expression B, VariableStack<Expression> Stack)
+        public static FuzzyBool Equivalent(ref Expression A, ref Expression B, IVariableStack<Expression> Stack)
         {
             if (A == B)
             {
@@ -434,19 +433,19 @@ namespace SaltScript
             this.Datum = new Datum(Value, Type);
         }
 
-        public override Value Evaluate(VariableStack<Value> Stack)
+        public override Value Evaluate(IMutableVariableStack<Value> Stack)
         {
             return this.Datum.Value;
         }
 
-        public override Expression Substitute(VariableStack<Expression> Variables)
+        public override Expression Substitute(IVariableMap<Expression> Map)
         {
             return this;
         }
 
         public override void TypeCheck(
-            VariableStack<Expression> TypeStack, 
-            VariableStack<Expression> Stack,
+            IVariableStack<Expression> TypeStack, 
+            IVariableStack<Expression> Stack,
             out Expression TypeSafeExpression, out Expression Type)
         {
             TypeSafeExpression = this;
@@ -469,11 +468,11 @@ namespace SaltScript
             this.Index = Index;
         }
 
-        public override bool Reduce(VariableStack<Expression> Stack, ref Expression Reduced)
+        public override bool Reduce(IVariableMap<Expression> Map, ref Expression Reduced)
         {
             // Only possible way to reduce a variable is to replace it with its value.
-            Expression possible;
-            if (Stack.Lookup(this.Index, out possible))
+            Expression possible = null;
+            if (Map.Lookup(this.Index, ref possible))
             {
                 VariableExpression ve = possible as VariableExpression;
                 if (ve != null)
@@ -489,9 +488,11 @@ namespace SaltScript
             return false;
         }
 
-        public override Value Evaluate(VariableStack<Value> Stack)
+        public override Value Evaluate(IMutableVariableStack<Value> Stack)
         {
-            return Stack.Lookup(this.Index);
+            Value val = null;
+            Stack.Lookup(this.Index, ref val);
+            return val;
         }
 
         public override Expression Compress(int Start, int Amount)
@@ -507,18 +508,19 @@ namespace SaltScript
             return null;
         }
 
-        public override Expression Substitute(VariableStack<Expression> Stack)
+        public override Expression Substitute(IVariableMap<Expression> Map)
         {
-            return Expression.Lookup(this.Index, Stack);
+            return Expression.Lookup(this.Index, Map);
         }
 
         public override void TypeCheck(
-            VariableStack<Expression> TypeStack,
-            VariableStack<Expression> Stack,
+            IVariableStack<Expression> TypeStack,
+            IVariableStack<Expression> Stack,
             out Expression TypeSafeExpression, out Expression Type)
         {
             TypeSafeExpression = this;
-            Type = TypeStack.Lookup(this.Index);
+            Type = null;
+            TypeStack.Lookup(this.Index, ref Type);
         }
 
         public int Index;
@@ -535,7 +537,7 @@ namespace SaltScript
             this.Argument = Argument;
         }
 
-        public override bool Reduce(VariableStack<Expression> Stack, ref Expression Reduced)
+        public override bool Reduce(IVariableMap<Expression> Map, ref Expression Reduced)
         {
             // Beta reduction (substituting an argument in a function definition)
             FunctionDefineExpression fde = this.Function as FunctionDefineExpression;
@@ -548,7 +550,7 @@ namespace SaltScript
             // Recursive reduction
             Expression fre = this.Function;
             Expression are = this.Argument;
-            if (fre.Reduce(Stack, ref fre) | are.Reduce(Stack, ref are))
+            if (fre.Reduce(Map, ref fre) | are.Reduce(Map, ref are))
             {
                 Reduced = new FunctionCallExpression(fre, are);
                 return true;
@@ -557,22 +559,22 @@ namespace SaltScript
             return false;
         }
 
-        public override Value Evaluate(VariableStack<Value> Stack)
+        public override Value Evaluate(IMutableVariableStack<Value> Stack)
         {
             return (this.Function.Evaluate(Stack) as FunctionValue).Call(this.Argument.Evaluate(Stack));
         }
 
-        public override Expression Substitute(VariableStack<Expression> Variables)
+        public override Expression Substitute(IVariableMap<Expression> Map)
         {
-            return new FunctionCallExpression(this.Function.Substitute(Variables), this.Argument.Substitute(Variables));
+            return new FunctionCallExpression(this.Function.Substitute(Map), this.Argument.Substitute(Map));
         }
         
         public override void TypeCheck(
-            VariableStack<Expression> TypeStack,
-            VariableStack<Expression> Stack,
+            IVariableStack<Expression> TypeStack,
+            IVariableStack<Expression> Stack,
             out Expression TypeSafeExpression, out Expression Type)
         {
-            int li = TypeStack.NextIndex;
+            int li = TypeStack.NextFreeIndex;
 
             Expression sfunc;
             Expression functype;
@@ -596,7 +598,7 @@ namespace SaltScript
             }
 
             TypeSafeExpression = new FunctionCallExpression(sfunc, sarg);
-            Type = fte.Function.SubstituteOne(Stack.NextIndex, sarg);
+            Type = fte.Function.SubstituteOne(Stack.NextFreeIndex, sarg);
         }
 
         /// <summary>
@@ -632,9 +634,9 @@ namespace SaltScript
             return this.Function.SubstituteOne(this.ArgumentIndex, Argument).Compress(this.ArgumentIndex, 1);
         }
 
-        public override Value Evaluate(VariableStack<Value> Stack)
+        public override Value Evaluate(IMutableVariableStack<Value> Stack)
         {
-            return new ExpressionFunction(Stack.Cut(this.ArgumentIndex).Freeze, this.Function);
+            return new ExpressionFunction((IMutableVariableStack<Value>)((IMutableVariableStack<Value>)Stack.Cut(this.ArgumentIndex)).Freeze, this.Function);
         }
 
         public override Expression Compress(int Start, int Amount)
@@ -645,24 +647,24 @@ namespace SaltScript
                 this.Function.Compress(Start, Amount));
         }
 
-        public override Expression Substitute(VariableStack<Expression> Stack)
+        public override Expression Substitute(IVariableMap<Expression> Map)
         {
             return new FunctionDefineExpression(
                 this.ArgumentIndex,
-                this.ArgumentType.Substitute(Stack),
-                this.Function.Substitute(Stack.Cut(this.ArgumentIndex)));
+                this.ArgumentType.Substitute(Map),
+                this.Function.Substitute(new SubsetMap<Expression>(0, this.ArgumentIndex, Map)));
         }
 
         public override void TypeCheck(
-            VariableStack<Expression> TypeStack,
-            VariableStack<Expression> Stack,
+            IVariableStack<Expression> TypeStack,
+            IVariableStack<Expression> Stack,
             out Expression TypeSafeExpression, out Expression Type)
         {
             Expression sifunc;
             Expression itype;
             this.Function.TypeCheck(
                 TypeStack.Cut(this.ArgumentIndex).Append(new Expression[] { this.ArgumentType }), 
-                Stack.Cut(this.ArgumentIndex).Append(new Expression[] { Expression.Variable(Stack.NextIndex) }), 
+                Stack.Cut(this.ArgumentIndex).Append(new Expression[] { Expression.Variable(Stack.NextFreeIndex) }), 
                 out sifunc, out itype);
             Type = Expression.FunctionType(this.ArgumentIndex, this.ArgumentType, itype);
             TypeSafeExpression = new FunctionDefineExpression(this.ArgumentIndex, this.ArgumentType, sifunc);
@@ -700,8 +702,8 @@ namespace SaltScript
         }
 
         public override void TypeCheck(
-            VariableStack<Expression> TypeStack,
-            VariableStack<Expression> Stack,
+            IVariableStack<Expression> TypeStack,
+            IVariableStack<Expression> Stack,
             out Expression TypeSafeExpression, out Expression Type)
         {
             throw new NotImplementedException();

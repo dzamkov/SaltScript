@@ -113,7 +113,7 @@ namespace SaltScript
     /// </summary>
     public class ExpressionFunction : FunctionValue
     {
-        public ExpressionFunction(VariableStack<Value> BaseStack, Expression Expression)
+        public ExpressionFunction(IMutableVariableStack<Value> BaseStack, Expression Expression)
         {
             this.BaseStack = BaseStack;
             this.Expression = Expression;
@@ -121,13 +121,13 @@ namespace SaltScript
 
         public override Value Call(Value Argument)
         {
-            return this.Expression.Evaluate(this.BaseStack.Append(new Value[] { Argument }));
+            return this.Expression.Evaluate((IMutableVariableStack<Value>)this.BaseStack.Append(new Value[] { Argument }));
         }
 
         /// <summary>
         /// The base stack for variables with a functional depth lower than the functional depth of the expression in this function.
         /// </summary>
-        public VariableStack<Value> BaseStack;
+        public IMutableVariableStack<Value> BaseStack;
 
         /// <summary>
         /// The expression that is evaluated to get the result of the function.

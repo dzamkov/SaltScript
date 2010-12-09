@@ -44,22 +44,22 @@ namespace SaltScript
             throw new NotImplementedException();
         }
 
-        public override Value Evaluate(VariableStack<Value> Stack)
+        public override Value Evaluate(IMutableVariableStack<Value> Stack)
         {
             if (this._ClonedVars != null)
             {
                 Value[] initvals = new Value[this._ClonedVars.Length];
                 for (int t = 0; t < this._ClonedVars.Length; t++)
                 {
-                    initvals[t] = Stack.Lookup(this._ClonedVars[t]);
+                    Stack.Lookup(this._ClonedVars[t], ref initvals[t]);
                 }
             }
             return this._Statement.Call(Stack);
         }
 
         public override void TypeCheck(
-            VariableStack<Expression> TypeStack,
-            VariableStack<Expression> Stack,
+            IVariableStack<Expression> TypeStack,
+            IVariableStack<Expression> Stack,
             out Expression TypeSafeExpression, out Expression Type)
         {
             if (this._ClonedVars != null)
@@ -70,10 +70,9 @@ namespace SaltScript
                 {
                     int vi = this._ClonedVars[t];
                     stackappend[t] = Expression.Lookup(vi, Stack);
-                    typestackappend[t] = TypeStack.Lookup(vi);
+                    TypeStack.Lookup(vi, ref typestackappend[t]);
                 }
                 Stack = Stack.Append(stackappend);
-                Stack.MarkMutable();
                 TypeStack = TypeStack.Append(typestackappend);
             }
 
@@ -134,14 +133,14 @@ namespace SaltScript
         /// </summary>
         /// <param name="ProcedureIndex">The first variable index in the procedure (and the first that can be modified).</param>
         public abstract void TypeCheck(
-            VariableStack<Expression> TypeStack,
-            VariableStack<Expression> Stack,
+            IVariableStack<Expression> TypeStack,
+            IVariableStack<Expression> Stack,
             out Statement TypeSafeStatement, out Expression ReturnType);
 
         /// <summary>
         /// Calls (runs) the statement with the specified mutable stack. Returns a value if this statement returns.
         /// </summary>
-        public abstract Value Call(VariableStack<Value> Stack);
+        public abstract Value Call(IMutableVariableStack<Value> Stack);
     }
 
     /// <summary>
@@ -232,12 +231,11 @@ namespace SaltScript
             return c;
         }
 
-        public override Value Call(VariableStack<Value> Stack)
+        public override Value Call(IMutableVariableStack<Value> Stack)
         {
             if (this._DefinedTypesByStatement.Count > 0)
             {
-                Stack = Stack.Append(this._DefinedTypesByStatement.Count);
-                Stack.MarkMutable();
+                Stack = Stack.AppendMutable(new Value[this._DefinedTypesByStatement.Count]);
             }
             for (int t = 0; t < this._Substatements.Length; t++)
             {
@@ -251,14 +249,13 @@ namespace SaltScript
         }
 
         public override void TypeCheck(
-            VariableStack<Expression> TypeStack, 
-            VariableStack<Expression> Stack, 
+            IVariableStack<Expression> TypeStack, 
+            IVariableStack<Expression> Stack, 
             out Statement TypeSafeStatement, out Expression ReturnType)
         {
             Expression[] types = new Expression[this._DefinedTypesByStatement.Count];
             TypeStack = TypeStack.Append(types);
             Stack = Stack.Append(new Expression[this._DefinedTypesByStatement.Count]);
-            Stack.MarkMutable();
 
             Statement[] nsubs = new Statement[this._Substatements.Length];
 
@@ -305,32 +302,34 @@ namespace SaltScript
             this._Value = Value;
         }
 
-        public override Value Call(VariableStack<Value> Stack)
+        public override Value Call(IMutableVariableStack<Value> Stack)
         {
             Stack.Modify(this._Variable, this._Value.Evaluate(Stack));
             return null;
         }
 
         public override void TypeCheck(
-            VariableStack<Expression> TypeStack, 
-            VariableStack<Expression> Stack, 
+            IVariableStack<Expression> TypeStack, 
+            IVariableStack<Expression> Stack, 
             out Statement TypeSafeStatement, out Expression ReturnType)
         {
             Expression sval;
             Expression valtype;
             this._Value.TypeCheck(TypeStack, Stack, out sval, out valtype);
 
-            Expression vartype = TypeStack.Lookup(this._Variable);
+            Expression vartype = null;
+            TypeStack.Lookup(this._Variable, ref vartype);
+
             Expression nvartype = vartype;
             FuzzyBool typeokay = Expression.Equivalent(ref nvartype, ref valtype, Stack);
             if (nvartype != vartype)
             {
                 // nvartype is a reduced form of vartype, save it.
-                TypeStack.Modify(this._Variable, nvartype);
+                //TypeStack.Modify(this._Variable, nvartype);
             }
             if (typeokay == FuzzyBool.True)
             {
-                Stack.Modify(this._Variable, sval);
+                //Stack.Modify(this._Variable, sval);
                 TypeSafeStatement = new SetStatement(this._Variable, sval);
                 ReturnType = null;
             }
@@ -354,7 +353,7 @@ namespace SaltScript
             this._Value = ReturnValue;
         }
 
-        public override Value Call(VariableStack<Value> Stack)
+        public override Value Call(IMutableVariableStack<Value> Stack)
         {
             return this._Value.Evaluate(Stack);
         }
@@ -371,8 +370,8 @@ namespace SaltScript
         }
 
         public override void TypeCheck(
-            VariableStack<Expression> TypeStack, 
-            VariableStack<Expression> Stack, 
+            IVariableStack<Expression> TypeStack, 
+            IVariableStack<Expression> Stack, 
             out Statement TypeSafeStatement, out Expression ReturnType)
         {
             Expression sval;

@@ -1,7 +1,4 @@
-<int, int>int add = function(int x, int y) {
-	return x + y;
-};
-add = function(int x, int y) {
-	return add(x, y);
-};
-return add(6, 7);
+type nint = int;
+<>nint ifunc = () => 5;
+nint = type;
+return ifunc();
