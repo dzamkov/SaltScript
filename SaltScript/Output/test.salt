@@ -1,4 +1,7 @@
 <int, int>int add = function(int x, int y) {
 	return x + y;
 };
+add = function(int x, int y) {
+	return add(x, y);
+};
 return add(6, 7);

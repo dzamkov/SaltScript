@@ -634,7 +634,7 @@ namespace SaltScript
 
         public override Value Evaluate(VariableStack<Value> Stack)
         {
-            return new ExpressionFunction(Stack.Cut(this.ArgumentIndex), this.Function);
+            return new ExpressionFunction(Stack.Cut(this.ArgumentIndex).Freeze, this.Function);
         }
 
         public override Expression Compress(int Start, int Amount)

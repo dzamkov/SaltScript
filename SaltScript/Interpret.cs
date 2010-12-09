@@ -75,17 +75,74 @@ namespace SaltScript
             this._Values = Values;
         }
 
+        public VariableStack(VariableStack<TValue> Lower, int StartIndex, TValue[] Values)
+        {
+            this._Lower = Lower;
+            this._StartIndex = StartIndex;
+            this._Values = Values;
+            this._Mutable = this._Lower._Mutable;
+        }
+
+        /// <summary>
+        /// Gets or sets if this stack is marked mutable, which indicates if it can be changed at a later time.
+        /// </summary>
+        public bool Mutable
+        {
+            get
+            {
+                return this._Mutable;
+            }
+        }
+
+        /// <summary>
+        /// Marks the top portion of the stack as mutable.
+        /// </summary>
+        public void MarkMutable()
+        {
+            this._Mutable = true;
+        }
+
+        /// <summary>
+        /// Marks every variable after the one specified as mutable.
+        /// </summary>
+        public void MarkMutable(int Index)
+        {
+            VariableStack<TValue> start;
+            this._GetIndex(Index, out start, out Index);
+            start.MarkMutable();
+        }
+
+        /// <summary>
+        /// Gets a frozen copy of this stack that will not be modified by an outside influence.
+        /// </summary>
+        public VariableStack<TValue> Freeze
+        {
+            get
+            {
+                if (this._Mutable)
+                {
+                    TValue[] nvals = new TValue[this._Values.Length];
+                    for(int t = 0; t < nvals.Length; t++)
+                    {
+                        nvals[t] = this._Values[t];
+                    }
+                    return new VariableStack<TValue>()
+                    {
+                        _Lower = this._Lower == null ? null : this._Lower.Freeze,
+                        _StartIndex = this._StartIndex,
+                        _Values = nvals
+                    };
+                }
+                return this;
+            }
+        }
+
         /// <summary>
         /// Creates a stack that is empty up until the specified index, after which it is undefined.
         /// </summary>
         public static VariableStack<TValue> Empty(int Index)
         {
-            return new VariableStack<TValue>()
-            {
-                _StartIndex = Index,
-                _Values = new TValue[0],
-                _Lower = null
-            };
+            return new VariableStack<TValue>(Index, new TValue[0]);
         }
 
         /// <summary>
@@ -104,12 +161,7 @@ namespace SaltScript
         /// </summary>
         public VariableStack<TValue> Append(TValue[] Values)
         {
-            return new VariableStack<TValue>()
-            {
-                _Lower =  this,
-                _StartIndex = this._StartIndex + this._Values.Length,
-                _Values = Values
-            };
+            return new VariableStack<TValue>(this, this._StartIndex + this._Values.Length, Values);
         }
 
         /// <summary>
@@ -117,12 +169,7 @@ namespace SaltScript
         /// </summary>
         public VariableStack<TValue> Append(TValue Value)
         {
-            return new VariableStack<TValue>()
-            {
-                _Lower = this,
-                _StartIndex = this._StartIndex + this._Values.Length,
-                _Values = new TValue[] { Value }
-            };
+            return new VariableStack<TValue>(this, this._StartIndex + this._Values.Length, new TValue[] { Value });
         }
 
         /// <summary>
@@ -130,12 +177,7 @@ namespace SaltScript
         /// </summary>
         public VariableStack<TValue> Append(int Amount)
         {
-            return new VariableStack<TValue>()
-            {
-                _Lower = this,
-                _StartIndex = this._StartIndex + this._Values.Length,
-                _Values = new TValue[Amount]
-            };
+            return new VariableStack<TValue>(this, this._StartIndex + this._Values.Length, new TValue[Amount]);
         }
 
         /// <summary>
@@ -145,12 +187,7 @@ namespace SaltScript
         {
             if (this.NextIndex > To)
             {
-                return new VariableStack<TValue>()
-                {
-                    _Lower = this,
-                    _StartIndex = To,
-                    _Values = new TValue[0]
-                };
+                return new VariableStack<TValue>(this, To, new TValue[0]);
             }
             return this;
         }
@@ -220,10 +257,14 @@ namespace SaltScript
         }
 
         /// <summary>
+        /// Gets if this part of the stack can be changed at a later time.
+        /// </summary>
+        private bool _Mutable;
+
+        /// <summary>
         /// Gets the lower levels of the stack.
         /// </summary>
         private VariableStack<TValue> _Lower;
-
 
         /// <summary>
         /// The index of the first value recorded in this part of the stack.

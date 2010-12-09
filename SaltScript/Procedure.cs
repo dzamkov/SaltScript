@@ -73,6 +73,7 @@ namespace SaltScript
                     typestackappend[t] = TypeStack.Lookup(vi);
                 }
                 Stack = Stack.Append(stackappend);
+                Stack.MarkMutable();
                 TypeStack = TypeStack.Append(typestackappend);
             }
 
@@ -129,8 +130,9 @@ namespace SaltScript
         }
 
         /// <summary>
-        /// Insures this statement is type-correct.
+        /// Insures this statement is type-correct. The value stack may be changed over multiple statements.
         /// </summary>
+        /// <param name="ProcedureIndex">The first variable index in the procedure (and the first that can be modified).</param>
         public abstract void TypeCheck(
             VariableStack<Expression> TypeStack,
             VariableStack<Expression> Stack,
@@ -235,6 +237,7 @@ namespace SaltScript
             if (this._DefinedTypesByStatement.Count > 0)
             {
                 Stack = Stack.Append(this._DefinedTypesByStatement.Count);
+                Stack.MarkMutable();
             }
             for (int t = 0; t < this._Substatements.Length; t++)
             {
@@ -255,6 +258,7 @@ namespace SaltScript
             Expression[] types = new Expression[this._DefinedTypesByStatement.Count];
             TypeStack = TypeStack.Append(types);
             Stack = Stack.Append(new Expression[this._DefinedTypesByStatement.Count]);
+            Stack.MarkMutable();
 
             Statement[] nsubs = new Statement[this._Substatements.Length];
 
