@@ -1,4 +1,5 @@
-type nint = int;
-<>nint ifunc = () => 5;
-nint = type;
-return ifunc();
+<int, int>int dosomething = function(int x, int y) {
+	int z = x + y;
+	return z * z;
+};
+return dosomething(5, 6);
