@@ -78,7 +78,8 @@ namespace SaltScript
 
             Statement sstatement;
             Expression returntype;
-            this._Statement.TypeCheck(TypeStack, Stack, out sstatement, out returntype);
+            ProcedureMap init = ProcedureMap.Initial;
+            this._Statement.TypeCheck(TypeStack, Stack, ref init, out sstatement, out returntype);
 
             if (returntype == null)
             {
@@ -131,10 +132,10 @@ namespace SaltScript
         /// <summary>
         /// Insures this statement is type-correct. The value stack may be changed over multiple statements.
         /// </summary>
-        /// <param name="ProcedureIndex">The first variable index in the procedure (and the first that can be modified).</param>
         public abstract void TypeCheck(
             IVariableStack<Expression> TypeStack,
             IVariableStack<Expression> Stack,
+            ref ProcedureMap ProcedureMap,
             out Statement TypeSafeStatement, out Expression ReturnType);
 
         /// <summary>
@@ -250,7 +251,8 @@ namespace SaltScript
 
         public override void TypeCheck(
             IVariableStack<Expression> TypeStack, 
-            IVariableStack<Expression> Stack, 
+            IVariableStack<Expression> Stack,
+            ref ProcedureMap ProcedureMap,
             out Statement TypeSafeStatement, out Expression ReturnType)
         {
             Expression[] types = new Expression[this._DefinedTypesByStatement.Count];
@@ -270,7 +272,7 @@ namespace SaltScript
                 }
 
                 Statement s = this._Substatements[t];
-                s.TypeCheck(TypeStack, Stack, out nsubs[t], out ReturnType);
+                s.TypeCheck(TypeStack, Stack, ref ProcedureMap, out nsubs[t], out ReturnType);
                 if (ReturnType != null)
                 {
                     if (hasreturn)
@@ -310,7 +312,8 @@ namespace SaltScript
 
         public override void TypeCheck(
             IVariableStack<Expression> TypeStack, 
-            IVariableStack<Expression> Stack, 
+            IVariableStack<Expression> Stack,
+            ref ProcedureMap ProcedureMap,
             out Statement TypeSafeStatement, out Expression ReturnType)
         {
             Expression sval;
@@ -329,7 +332,6 @@ namespace SaltScript
             }
             if (typeokay == FuzzyBool.True)
             {
-                //Stack.Modify(this._Variable, sval);
                 TypeSafeStatement = new SetStatement(this._Variable, sval);
                 ReturnType = null;
             }
@@ -371,7 +373,8 @@ namespace SaltScript
 
         public override void TypeCheck(
             IVariableStack<Expression> TypeStack, 
-            IVariableStack<Expression> Stack, 
+            IVariableStack<Expression> Stack,
+            ref ProcedureMap ProcedureMap,
             out Statement TypeSafeStatement, out Expression ReturnType)
         {
             Expression sval;
@@ -382,6 +385,72 @@ namespace SaltScript
         }
 
         private Expression _Value;
+    }
+
+    /// <summary>
+    /// A variable map that computes the expression values of local variables in the procedure as they are needed. (Because most of the time, at least while type
+    /// checking, they aren't).
+    /// </summary>
+    public abstract class ProcedureMap : IVariableMap<Expression>
+    {
+        private ProcedureMap(int ProcedureIndex, ProcedureMap Previous)
+        {
+            this._ProcedureIndex = ProcedureIndex;
+            this._Previous = Previous;
+        }
+
+        /// <summary>
+        /// Gets the index of the first variable in the procedure.
+        /// </summary>
+        public int ProcedureIndex
+        {
+            get
+            {
+                return this._ProcedureIndex;
+            }
+        }
+
+        /// <summary>
+        /// Gets the expression for the specified variable, given the stack for the previous state.
+        /// </summary>
+        protected abstract Expression Compute(int Index, ProcedureMap Previous);
+
+        public bool Lookup(int Index, ref Expression Value)
+        {
+            Expression val = this.Compute(Index, this._Previous);
+            if (val != null)
+            {
+                Value = val;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// An initial procedure map with no variables defined.
+        /// </summary>
+        public static readonly ProcedureMap Initial = new _InitialProcedureMap();
+
+        private class _InitialProcedureMap : ProcedureMap
+        {
+            public _InitialProcedureMap()
+                : base(null)
+            {
+
+            }
+
+            protected override Expression Compute(int Index, ProcedureMap Previous)
+            {
+                return null;
+            }
+        }
+
+        private int _ProcedureIndex;
+
+        /// <summary>
+        /// The map for the previous state of the variables.
+        /// </summary>
+        private ProcedureMap _Previous;
     }
 
     /// <summary>
