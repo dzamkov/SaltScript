@@ -110,17 +110,33 @@ def AcceptWhitespace(Reader, Location):
 class Expression:
     def Call(Variables): pass
 
-class VariableExpression:
+class VariableExpression(Expression):
     VarName = None
     def __init__(self, VarName):
         self.VarName = VarName
 
-class LiteralExpression:
-    Type = None
+class LiteralExpression(Expression):
     Value = None
-    def __init__(self, Type, Value):
-        self.Type = Type
+    def __init__(self, Value):
         self.Value = Value
+
+class ProcedureExpression(Expression):
+    Statement = None
+    def __init__(self, Statement):
+        self.Statement = Statement
+
+class FunctionCallExpression(Expression):
+    Function = None
+    Argument = None
+    def __init__(self, Function, Argument):
+        self.Function = Function
+        self.Argument = Argument
+
+class TupleExpression(Expression):
+    Items = None
+    def __init__(self, Items):
+        self.Items = Items
+    
 
 def AcceptIntegerLiteral(Reader, Location):
     intstr = ""
@@ -143,13 +159,55 @@ def AcceptAtomExpression(Reader, Location):
     sr = AcceptIntegerLiteral(Reader, Location)
     if sr:
         val, Location = sr
-        return LiteralExpression(int, val), Location
+        return LiteralExpression(val), Location
 
 def AcceptTightExpression(Reader, Location):
     return AcceptAtomExpression(Reader, Location)
 
+Operators = {
+    "+" : (9, True, lambda x, y: x + y),
+    "-" : (9, True, lambda x, y: x - y),
+    "*" : (10, True, lambda x, y: x * y),
+    "/" : (10, True, lambda x, y: x / y)
+}
+
 def AcceptExpression(Reader, Location):
-    return AcceptTightExpression(Reader, Location)
+    sr = AcceptTightExpression(Reader, Location)
+    if sr:
+        firstexp, Location = sr
+        def Merge(OptreeInitial, Operator, Expression):
+            opname, opstr, opassoc, opdef = Operator
+            if type(OptreeInitial) == tuple:
+                leftpart, rightpart, iop = OptreeInitial
+                iopname, iopstr, iopassoc, iopdef = iop
+                if iopstr < opstr or (iopstr == opstr and not opassoc):
+                    return (leftpart, Merge(rightpart, Operator, Expression), iop)
+            return (OptreeInitial, Expression, Operator)
+        def Convert(Optree):
+            if type(Optree) == tuple:
+                leftpart, rightpart, iop = Optree
+                iopname, iopstr, iopassoc, iopdef = iop
+                return FunctionCallExpression(LiteralExpression(iopdef), TupleExpression([Convert(leftpart), Convert(rightpart)]))
+            return Optree
+        optree = firstexp
+        while True:
+            _, nlocation = AcceptWhitespace(Reader, Location)
+            sr = AcceptWord(Reader, nlocation)
+            if sr:
+                opname, nlocation = sr
+                try:
+                    opstr, opassoc, opdef = Operators[opname]
+                    _, nlocation = AcceptWhitespace(Reader, nlocation)
+                    sr = AcceptTightExpression(Reader, nlocation)
+                    if sr:
+                        exp, Location = sr
+                        optree = Merge(optree, (opname, opstr, opassoc, opdef), exp)
+                        continue
+                except(KeyError):
+                    break
+            break
+        return Convert(optree), Location
+    return False
 
 
 
@@ -158,7 +216,7 @@ def AcceptExpression(Reader, Location):
 class Statement:
     def Call(Variables): pass
 
-class AssignStatement:
+class AssignStatement(Statement):
     Type = None
     VarName = None
     Value = None
@@ -166,6 +224,16 @@ class AssignStatement:
         self.Type = Type
         self.VarName = VarName
         self.Value = Value
+
+class ReturnStatement(Statement):
+    Value = None
+    def __init__(self, Value):
+        self.Value = Value
+
+class CompoundStatement(Statement):
+    SubStatements = None
+    def __init__(self, SubStatements):
+        self.SubStatements = SubStatements
 
 def AcceptStatement(Reader, Location):
     
@@ -190,7 +258,50 @@ def AcceptStatement(Reader, Location):
                     if sr:
                         _, Location = sr
                         return AssignStatement(ttype, varname, value), Location
+    sr = AcceptString(Reader, Location, "return")
+    if sr:
+        _, Location = sr
+        _, Location = AcceptWhitespace(Reader, Location)
+        sr = AcceptExpression(Reader, Location)
+        if sr:
+            value, Location = sr
+            _, Location = AcceptWhitespace(Reader, Location)
+            sr = AcceptString(Reader, Location, ";")
+            if sr:
+                _, Location = sr
+                return ReturnStatement(value), Location
+    sr = AcceptString(Reader, Location, "{")
+    if sr:
+        _, Location = sr
+        _, Location = AcceptWhitespace(Reader, Location)
+        sr = AcceptCompoundStatement(Reader, Location)
+        if sr:
+            statement, Location = sr
+            _, Location = AcceptWhitespace(Reader, Location)
+            sr = AcceptString(Reader, Location, "}")
+            if sr:
+                _, Location = sr
+                return statement, Location
+    return False
+
+def AcceptCompoundStatement(Reader, Location):
+    sr = AcceptStatement(Reader, Location)
+    if sr:
+        firststatement, Location = sr
+        li = [firststatement]
+        while True:
+            _, nlocation = AcceptWhitespace(Reader, Location)
+            sr = AcceptStatement(Reader, nlocation)
+            if sr:
+                statement, Location = sr
+                li.append(statement)
+                continue
+            else:
+                break
+        return CompoundStatement(li), Location
+    else:
+        return CompoundStatement([]), Location
     
     
-test = AcceptStatement(StringReader("int test = 5; return test;"), 0)
+test = AcceptCompoundStatement(StringReader("int test = 5 + 8; return test;"), 0)
 print(test)
