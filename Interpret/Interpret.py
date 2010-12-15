@@ -108,22 +108,28 @@ def AcceptWhitespace(Reader, Location):
 
 
 class Expression:
-    def Call(Variables): pass
+    def Call(self, Variables): pass
 
 class VariableExpression(Expression):
     VarName = None
     def __init__(self, VarName):
         self.VarName = VarName
+    def Call(self, Variables):
+        return Variables[self.VarName]
 
 class LiteralExpression(Expression):
     Value = None
     def __init__(self, Value):
         self.Value = Value
+    def Call(self, Variables):
+        return self.Value
 
 class ProcedureExpression(Expression):
     Statement = None
     def __init__(self, Statement):
         self.Statement = Statement
+    def Call(self, Variables):
+        return self.Statement.Call(self, Variables)
 
 class FunctionCallExpression(Expression):
     Function = None
@@ -131,12 +137,42 @@ class FunctionCallExpression(Expression):
     def __init__(self, Function, Argument):
         self.Function = Function
         self.Argument = Argument
+    def Call(self, Variables):
+        return self.Function.Call(Variables)(self.Argument.Call(Variables))
+
+class FunctionDefineExpression(Expression):
+    Function = None
+    ArgumentType = None
+    MapVarsFunc = None
+    def __init__(self, Function, ArgumentType, MapVarsFunc):
+        self.Function = Function
+        self.ArgumentType = ArgumentType
+        self.MapVarsFunc = MapVarsFunc
+    def Call(self, Variables):
+        nvars = Variables.copy()
+        def FuncCall(Argument):
+            self.MapVarsFunc(Argument, nvars)
+            return self.Function.Call(nvars)
+        return FuncCall
 
 class TupleExpression(Expression):
     Items = None
     def __init__(self, Items):
         self.Items = Items
-    
+    def Call(self, Variables):
+        return [x.Call(Variables) for x in self.Items]
+
+def MakeLambda(ArgumentList, Expression):
+    typelist, namelist = ArgumentList
+    def MapVarsFunc(Argument, Variables):
+        if type(Argument) == tuple:
+            for i in range(0, len(namelist)):
+                Variables[namelist[i]] = Argument[i]
+        else:
+            Variables[namelist[0]] = Argument
+    if len(typelist) == 1:
+        return FunctionDefineExpression(Expression, typelist[0], MapVarsFunc)
+    return FunctionDefineExpression(Expression, TupleExpression(typelist), MapVarsFunc)
 
 def AcceptIntegerLiteral(Reader, Location):
     intstr = ""
@@ -152,6 +188,18 @@ def AcceptIntegerLiteral(Reader, Location):
         return False
 
 def AcceptAtomExpression(Reader, Location):
+    sr = AcceptString(Reader, Location, "(")
+    if sr:
+        _, nlocation = sr
+        _, nlocation = AcceptWhitespace(Reader, nlocation)
+        sr = AcceptExpression(Reader, nlocation)
+        if sr:
+            iexp, nlocation = sr
+            _, nlocation = AcceptWhitespace(Reader, nlocation)
+            sr = AcceptString(Reader, nlocation, ")")
+            if sr:
+                _, Location = sr
+                return iexp, Location
     sr = AcceptWord(Reader, Location)
     if sr:
         varname, Location = sr
@@ -162,15 +210,58 @@ def AcceptAtomExpression(Reader, Location):
         return LiteralExpression(val), Location
 
 def AcceptTightExpression(Reader, Location):
+    sr = AcceptString(Reader, Location, "<")
+    if sr:
+        _, nlocation = sr
+        _, nlocation = AcceptWhitespace(Reader, nlocation)
+        arglist, nlocation = AcceptArgumentList(Reader, nlocation)
+        typelist, namelist = arglist
+        sr = AcceptString(Reader, nlocation, ">")
+        if sr:
+            _, nlocation = sr
+            _, nlocation = AcceptWhitespace(Reader, nlocation)
+            sr = AcceptTightExpression(Reader, nlocation)
+            if sr:
+                returntype, Location = sr
+                return MakeLambda(arglist, returntype), Location
     return AcceptAtomExpression(Reader, Location)
 
 Operators = {
-    "+" : (9, True, lambda x, y: x + y),
-    "-" : (9, True, lambda x, y: x - y),
-    "*" : (10, True, lambda x, y: x * y),
-    "/" : (10, True, lambda x, y: x / y)
+    "+" : (9, True, lambda arg: arg[0] + arg[1]),
+    "-" : (9, True, lambda arg: arg[0] - arg[1]),
+    "*" : (10, True, lambda arg: arg[0] * arg[1]),
+    "/" : (10, True, lambda arg: arg[0] / arg[1])
 }
 
+def AcceptArgumentList(Reader, Location):
+    typeli = []
+    nameli = []
+    first = True
+    nlocation = Location
+    while True:
+        if first:
+            first = False
+        else:
+            _, nlocation = AcceptWhitespace(Reader, Location)
+            sr = AcceptString(Reader, nlocation, ",")
+            if not sr:
+                break
+            _, nlocation = sr
+            _, nlocation = AcceptWhitespace(Reader, nlocation)
+        sr = AcceptTightExpression(Reader, nlocation)
+        if not sr:
+            break
+        ttype, Location = sr
+        _, nlocation = AcceptWhitespace(Reader, Location)
+        sr = AcceptWord(Reader, nlocation)
+        if sr:
+            varname, Location = sr
+            nameli.append(varname)
+        else:
+            nameli.append(None)
+        typeli.append(ttype)
+    return (typeli, nameli), Location
+            
 def AcceptExpression(Reader, Location):
     sr = AcceptTightExpression(Reader, Location)
     if sr:
@@ -214,9 +305,9 @@ def AcceptExpression(Reader, Location):
 
 
 class Statement:
-    def Call(Variables): pass
+    def Call(self, Variables): pass
 
-class AssignStatement(Statement):
+class DefineStatement(Statement):
     Type = None
     VarName = None
     Value = None
@@ -224,64 +315,99 @@ class AssignStatement(Statement):
         self.Type = Type
         self.VarName = VarName
         self.Value = Value
+    def Call(self, Variables):
+        Variables[self.VarName] = self.Value.Call(Variables)
+
+class AssignStatement(Statement):
+    VarName = None
+    Value = None
+    def __init__(self, VarName, Value):
+        self.VarName = VarName
+        self.Value = Value
+    def Call(self, Variables):
+        Variables[self.VarName] = self.Value.Call(Variables)
 
 class ReturnStatement(Statement):
     Value = None
     def __init__(self, Value):
         self.Value = Value
+    def Call(self, Variables):
+        return self.Value.Call(Variables)
 
 class CompoundStatement(Statement):
     SubStatements = None
     def __init__(self, SubStatements):
         self.SubStatements = SubStatements
+    def Call(self, Variables):
+        for statement in self.SubStatements:
+            res = statement.Call(Variables)
+            if not res == None:
+                return res
+        return None
 
 def AcceptStatement(Reader, Location):
     
     # Monads would've cleared all this code up
     sr = AcceptTightExpression(Reader, Location)
     if sr:
-        ttype, Location = sr
-        _, Location = AcceptWhitespace(Reader, Location)
-        sr = AcceptWord(Reader, Location)
+        ttype, nlocation = sr
+        _, nlocation = AcceptWhitespace(Reader, nlocation)
+        sr = AcceptWord(Reader, nlocation)
         if sr:
-            varname, Location = sr
-            _, Location = AcceptWhitespace(Reader, Location)
-            sr = AcceptString(Reader, Location, "=")
+            varname, nlocation = sr
+            _, nlocation = AcceptWhitespace(Reader, nlocation)
+            sr = AcceptString(Reader, nlocation, "=")
             if sr:
-                _, Location = sr
-                _, Location = AcceptWhitespace(Reader, Location)
-                sr = AcceptExpression(Reader, Location)
+                _, nlocation = sr
+                _, nlocation = AcceptWhitespace(Reader, nlocation)
+                sr = AcceptExpression(Reader, nlocation)
                 if sr:
-                    value, Location = sr
-                    _, Location = AcceptWhitespace(Reader, Location)
-                    sr = AcceptString(Reader, Location, ";")
+                    value, nlocation = sr
+                    _, nlocation = AcceptWhitespace(Reader, nlocation)
+                    sr = AcceptString(Reader, nlocation, ";")
                     if sr:
-                        _, Location = sr
-                        return AssignStatement(ttype, varname, value), Location
+                        _, nlocation = sr
+                        return DefineStatement(ttype, varname, value), nlocation
     sr = AcceptString(Reader, Location, "return")
     if sr:
-        _, Location = sr
-        _, Location = AcceptWhitespace(Reader, Location)
-        sr = AcceptExpression(Reader, Location)
+        _, nlocation = sr
+        _, nlocation = AcceptWhitespace(Reader, nlocation)
+        sr = AcceptExpression(Reader, nlocation)
         if sr:
-            value, Location = sr
-            _, Location = AcceptWhitespace(Reader, Location)
-            sr = AcceptString(Reader, Location, ";")
+            value, nlocation = sr
+            _, Location = AcceptWhitespace(Reader, nlocation)
+            sr = AcceptString(Reader, nlocation, ";")
             if sr:
-                _, Location = sr
-                return ReturnStatement(value), Location
+                _, nlocation = sr
+                return ReturnStatement(value), nlocation
+    sr = AcceptWord(Reader, Location)
+    if sr:
+        varname, nlocation = sr
+        _, nlocation = AcceptWhitespace(Reader, nlocation)
+        sr = AcceptString(Reader, nlocation, "=")
+        if sr:
+            _, nlocation = sr
+            _, nlocation = AcceptWhitespace(Reader, nlocation)
+            sr = AcceptExpression(Reader, nlocation)
+            if sr:
+                value, nlocation = sr
+                _, nlocation = AcceptWhitespace(Reader, nlocation)
+                sr = AcceptString(Reader, nlocation, ";")
+                if sr:
+                    _, nlocation = sr
+                    return AssignStatement(varname, value), nlocation
     sr = AcceptString(Reader, Location, "{")
     if sr:
-        _, Location = sr
-        _, Location = AcceptWhitespace(Reader, Location)
-        sr = AcceptCompoundStatement(Reader, Location)
+        _, nlocation = sr
+        _, nlocation = AcceptWhitespace(Reader, nlocation)
+        sr = AcceptCompoundStatement(Reader, nlocation)
         if sr:
-            statement, Location = sr
-            _, Location = AcceptWhitespace(Reader, Location)
-            sr = AcceptString(Reader, Location, "}")
+            statement, nlocation = sr
+            _, nlocation = AcceptWhitespace(Reader, nlocation)
+            sr = AcceptString(Reader, nlocation, "}")
             if sr:
-                _, Location = sr
-                return statement, Location
+                _, nlocation = sr
+                return statement, nlocation
     return False
 
 def AcceptCompoundStatement(Reader, Location):
@@ -303,5 +429,6 @@ def AcceptCompoundStatement(Reader, Location):
         return CompoundStatement([]), Location
     
     
-test = AcceptCompoundStatement(StringReader("int test = 5 + 8; return test;"), 0)
-print(test)
+test = AcceptCompoundStatement(StringReader("<int, int>int test = 5 + 8; test = test + 1; return <int a>(a * a * test);"), 0)
+res = test[0].Call(dict())
+print(res)
