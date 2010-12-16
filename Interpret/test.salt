@@ -1,7 +1,9 @@
-int testfunc(int x, int y) {
-	return x + y; 
+int makeeven(int x) {
+	if x % 2 == 1 {
+		return x - 1;
+	} else {
+		return x;
+	}
 }
-int nothafunc(int x, int y) { 
-	return x * testfunc(x, y) + y;
-}
-return nothafunc(6, 7);
+
+return makeeven(5) + makeeven(4);

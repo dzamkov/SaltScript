@@ -28,8 +28,7 @@ def IsWordChar(Char):
     if ascii >= 35 and ascii <= 39: return True # # $ % & '
     if ascii >= 42 and ascii <= 43: return True # * +
     if ascii == 45: return True # -
-    if ascii == 61: return True # =
-    if ascii == 63: return True # ?
+    if ascii >= 60 and ascii <= 63: return True # < = > ?
     if ascii == 126: return True # ~
     return False
 
@@ -311,10 +310,16 @@ def AcceptTightExpression(Reader, Location):
         return exp, Location
 
 Operators = {
+    "==" : (7, True, lambda arg: arg[0] == arg[1]),
+    "<" : (8, True, lambda arg: arg[0] < arg[1]),
+    ">" : (8, True, lambda arg: arg[0] > arg[1]),
+    "<=" : (8, True, lambda arg: arg[0] <= arg[1]),
+    ">=" : (8, True, lambda arg: arg[0] >= arg[1]),
     "+" : (9, True, lambda arg: arg[0] + arg[1]),
     "-" : (9, True, lambda arg: arg[0] - arg[1]),
     "*" : (10, True, lambda arg: arg[0] * arg[1]),
-    "/" : (10, True, lambda arg: arg[0] / arg[1])
+    "/" : (10, True, lambda arg: arg[0] / arg[1]),
+    "%" : (10, True, lambda arg: arg[0] % arg[1])
 }
 
 def AcceptArgumentList(Reader, Location, WithNames):
@@ -433,6 +438,22 @@ class CompoundStatement(Statement):
                 return res
         return None
 
+class IfStatement(Statement):
+    Condition = None
+    OnTrue = None
+    OnFalse = None
+    def __init__(self, Condition, OnTrue, OnFalse):
+        self.Condition = Condition
+        self.OnTrue = OnTrue
+        self.OnFalse = OnFalse
+    def Call(self, Variables):
+        if self.Condition.Call(Variables):
+            if self.OnTrue:
+                return self.OnTrue.Call(Variables)
+        else:
+            if self.OnFalse:
+                return self.OnFalse.Call(Variables)
+
 def AcceptStatement(Reader, Location):
     
     # Monads would've cleared all this code up
@@ -513,6 +534,29 @@ def AcceptStatement(Reader, Location):
                     _, nlocation = sr
                     return AssignStatement(varname, value), nlocation
 
+    # If
+    sr = AcceptString(Reader, Location, "if")
+    if sr:
+        _, nlocation = sr
+        _, nlocation = AcceptWhitespace(Reader, nlocation)
+        sr = AcceptExpression(Reader, nlocation)
+        if sr:
+            cond, nlocation = sr
+            _, nlocation = AcceptWhitespace(Reader, nlocation)
+            sr = AcceptStatement(Reader, nlocation)
+            if sr:
+                ontrue, Location = sr
+                _, nlocation = AcceptWhitespace(Reader, Location)
+                sr = AcceptString(Reader, nlocation, "else")
+                if sr:
+                    _, nlocation = sr
+                    _, nlocation = AcceptWhitespace(Reader, nlocation)
+                    sr = AcceptStatement(Reader, nlocation)
+                    if sr:
+                        onfalse, Location = sr
+                        return IfStatement(cond, ontrue, onfalse), Location
+                return IfStatement(cond, ontrue, None), Location
+
     # Compound
     sr = AcceptString(Reader, Location, "{")
     if sr:
@@ -549,6 +593,10 @@ def InterpretFile(File):
     f = open(File, 'r')
     s = f.read()
     exp = AcceptCompoundStatement(StringReader(s), 0)
+    return exp[0].Call(dict())
+
+def EvaluateString(String):
+    exp = AcceptExpression(StringReader(String), 0)
     return exp[0].Call(dict())
     
 res = InterpretFile("test.salt")
