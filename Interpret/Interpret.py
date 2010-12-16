@@ -165,7 +165,7 @@ class TupleExpression(Expression):
 def MakeLambda(ArgumentList, Expression):
     typelist, namelist = ArgumentList
     def MapVarsFunc(Argument, Variables):
-        if type(Argument) == tuple:
+        if type(Argument) == tuple or type(Argument) == list:
             for i in range(0, len(namelist)):
                 Variables[namelist[i]] = Argument[i]
         else:
@@ -188,6 +188,7 @@ def AcceptIntegerLiteral(Reader, Location):
         return False
 
 def AcceptAtomExpression(Reader, Location):
+    # Brackets
     sr = AcceptString(Reader, Location, "(")
     if sr:
         _, nlocation = sr
@@ -200,22 +201,45 @@ def AcceptAtomExpression(Reader, Location):
             if sr:
                 _, Location = sr
                 return iexp, Location
+
+    # Single variable
     sr = AcceptWord(Reader, Location)
     if sr:
         varname, Location = sr
         return VariableExpression(varname), Location
+
+    # Integer literal
     sr = AcceptIntegerLiteral(Reader, Location)
     if sr:
         val, Location = sr
         return LiteralExpression(val), Location
 
 def AcceptTightExpression(Reader, Location):
+    # Standard lambda
+    sr = AcceptString(Reader, Location, "(")
+    if sr:
+        _, nlocation = sr
+        _, nlocation = AcceptWhitespace(Reader, nlocation)
+        arglist, nlocation = AcceptArgumentList(Reader, nlocation, True)
+        sr = AcceptString(Reader, nlocation, ")")
+        if sr:
+            _, nlocation = sr
+            _, nlocation = AcceptWhitespace(Reader, nlocation)
+            sr = AcceptString(Reader, nlocation, "=>")
+            if sr:
+                _, nlocation = sr
+                _, nlocation = AcceptWhitespace(Reader, nlocation)
+                sr = AcceptExpression(Reader, nlocation)
+                if sr:
+                    iexp, Location = sr
+                    return MakeLambda(arglist, iexp), Location
+
+    # Function type lambda
     sr = AcceptString(Reader, Location, "<")
     if sr:
         _, nlocation = sr
         _, nlocation = AcceptWhitespace(Reader, nlocation)
-        arglist, nlocation = AcceptArgumentList(Reader, nlocation)
-        typelist, namelist = arglist
+        arglist, nlocation = AcceptArgumentList(Reader, nlocation, True)
         sr = AcceptString(Reader, nlocation, ">")
         if sr:
             _, nlocation = sr
@@ -224,7 +248,30 @@ def AcceptTightExpression(Reader, Location):
             if sr:
                 returntype, Location = sr
                 return MakeLambda(arglist, returntype), Location
-    return AcceptAtomExpression(Reader, Location)
+
+    # Atom followed by a sequence of calls or accessors
+    sr = AcceptAtomExpression(Reader, Location)
+    if sr:
+        exp, Location = sr
+        while True:
+            # Function call
+            _, nlocation = AcceptWhitespace(Reader, Location)
+            sr = AcceptString(Reader, nlocation, "(")
+            if sr:
+                _, nlocation = sr
+                _, nlocation = AcceptWhitespace(Reader, nlocation)
+                arglist, nlocation = AcceptArgumentList(Reader, nlocation, False)
+                _, nlocation = AcceptWhitespace(Reader, nlocation)
+                sr = AcceptString(Reader, nlocation, ")")
+                if sr:
+                    _, Location = sr
+                    if len(arglist) == 1:
+                        exp = FunctionCallExpression(exp, arglist[0])
+                    else:
+                        exp = FunctionCallExpression(exp, TupleExpression(arglist))
+                    continue
+            break
+        return exp, Location
 
 Operators = {
     "+" : (9, True, lambda arg: arg[0] + arg[1]),
@@ -233,7 +280,7 @@ Operators = {
     "/" : (10, True, lambda arg: arg[0] / arg[1])
 }
 
-def AcceptArgumentList(Reader, Location):
+def AcceptArgumentList(Reader, Location, WithNames):
     typeli = []
     nameli = []
     first = True
@@ -253,14 +300,18 @@ def AcceptArgumentList(Reader, Location):
             break
         ttype, Location = sr
         _, nlocation = AcceptWhitespace(Reader, Location)
-        sr = AcceptWord(Reader, nlocation)
-        if sr:
-            varname, Location = sr
-            nameli.append(varname)
-        else:
-            nameli.append(None)
+        if WithNames:
+            sr = AcceptWord(Reader, nlocation)
+            if sr:
+                varname, Location = sr
+                nameli.append(varname)
+            else:
+                nameli.append(None)
         typeli.append(ttype)
-    return (typeli, nameli), Location
+    if WithNames:
+        return (typeli, nameli), Location
+    else:
+        return typeli, Location
             
 def AcceptExpression(Reader, Location):
     sr = AcceptTightExpression(Reader, Location)
@@ -348,6 +399,7 @@ class CompoundStatement(Statement):
 def AcceptStatement(Reader, Location):
     
     # Monads would've cleared all this code up
+    # Define
     sr = AcceptTightExpression(Reader, Location)
     if sr:
         ttype, nlocation = sr
@@ -368,6 +420,8 @@ def AcceptStatement(Reader, Location):
                     if sr:
                         _, nlocation = sr
                         return DefineStatement(ttype, varname, value), nlocation
+
+    # Return
     sr = AcceptString(Reader, Location, "return")
     if sr:
         _, nlocation = sr
@@ -380,6 +434,8 @@ def AcceptStatement(Reader, Location):
             if sr:
                 _, nlocation = sr
                 return ReturnStatement(value), nlocation
+
+    # Assign
     sr = AcceptWord(Reader, Location)
     if sr:
         varname, nlocation = sr
@@ -396,6 +452,8 @@ def AcceptStatement(Reader, Location):
                 if sr:
                     _, nlocation = sr
                     return AssignStatement(varname, value), nlocation
+
+    # Compound
     sr = AcceptString(Reader, Location, "{")
     if sr:
         _, nlocation = sr
@@ -427,8 +485,12 @@ def AcceptCompoundStatement(Reader, Location):
         return CompoundStatement(li), Location
     else:
         return CompoundStatement([]), Location
+
+def InterpretFile(File):
+    f = open(File, 'r')
+    s = f.read()
+    exp = AcceptCompoundStatement(StringReader(s), 0)
+    return exp[0].Call(dict())
     
-    
-test = AcceptCompoundStatement(StringReader("<int, int>int test = 5 + 8; test = test + 1; return <int a>(a * a * test);"), 0)
-res = test[0].Call(dict())
+res = InterpretFile("test.salt")
 print(res)

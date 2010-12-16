@@ -1,0 +1,3 @@
+<int, int>int testfunc = (int x, int y) => x + y;
+<int, int>int nothafunc = (int x, int y) => x * testfunc(x, y) + y;
+return nothafunc(6, 7);
