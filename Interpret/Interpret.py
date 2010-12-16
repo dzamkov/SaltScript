@@ -220,6 +220,31 @@ def AcceptAtomExpression(Reader, Location):
             _, Location = sr
             return proc, Location
 
+    # Combined lambda/procedure
+    sr = AcceptString(Reader, Location, "function")
+    if sr:
+        _, nlocation = sr
+        _, nlocation = AcceptWhitespace(Reader, nlocation)
+        sr = AcceptString(Reader, nlocation, "(")
+        if sr:
+            _, nlocation = sr
+            _, nlocation = AcceptWhitespace(Reader, nlocation)
+            arglist, nlocation = AcceptArgumentList(Reader, nlocation, True)
+            sr = AcceptString(Reader, nlocation, ")")
+            if sr:
+                _, nlocation = sr
+                _, nlocation = AcceptWhitespace(Reader, nlocation)
+                sr = AcceptString(Reader, nlocation, "{")
+                if sr:
+                    _, nlocation = sr
+                    _, nlocation = AcceptWhitespace(Reader, nlocation)
+                    proc, nlocation = AcceptCompoundStatement(Reader, nlocation)
+                    _, nlocation = AcceptWhitespace(Reader, nlocation)
+                    sr = AcceptString(Reader, nlocation, "}")
+                    if sr:
+                        _, Location = sr
+                        return MakeLambda(arglist, proc), Location
+
     # Integer literal
     sr = AcceptIntegerLiteral(Reader, Location)
     if sr:
@@ -420,6 +445,7 @@ def AcceptStatement(Reader, Location):
         if sr:
             varname, nlocation = sr
             _, nlocation = AcceptWhitespace(Reader, nlocation)
+            
             sr = AcceptString(Reader, nlocation, "=")
             if sr:
                 _, nlocation = sr
@@ -432,6 +458,28 @@ def AcceptStatement(Reader, Location):
                     if sr:
                         _, nlocation = sr
                         return DefineStatement(ttype, varname, value), nlocation
+
+            # Static function definition
+            sr = AcceptString(Reader, nlocation, "(")
+            if sr:
+                _, nlocation = sr
+                _, nlocation = AcceptWhitespace(Reader, nlocation)
+                arglist, nlocation = AcceptArgumentList(Reader, nlocation, True)
+                sr = AcceptString(Reader, nlocation, ")")
+                if sr:
+                    _, nlocation = sr
+                    _, nlocation = AcceptWhitespace(Reader, nlocation)
+                    sr = AcceptString(Reader, nlocation, "{")
+                    if sr:
+                        _, nlocation = sr
+                        _, nlocation = AcceptWhitespace(Reader, nlocation)
+                        proc, nlocation = AcceptCompoundStatement(Reader, nlocation)
+                        _, nlocation = AcceptWhitespace(Reader, nlocation)
+                        sr = AcceptString(Reader, nlocation, "}")
+                        if sr:
+                            _, Location = sr
+                            return DefineStatement(MakeLambda(arglist, ttype), varname, MakeLambda(arglist, proc)), Location
+                
 
     # Return
     sr = AcceptString(Reader, Location, "return")
@@ -478,7 +526,6 @@ def AcceptStatement(Reader, Location):
             if sr:
                 _, nlocation = sr
                 return statement, nlocation
-    return False
 
 def AcceptCompoundStatement(Reader, Location):
     sr = AcceptStatement(Reader, Location)
