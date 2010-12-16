@@ -208,6 +208,18 @@ def AcceptAtomExpression(Reader, Location):
         varname, Location = sr
         return VariableExpression(varname), Location
 
+    # Procedure
+    sr = AcceptString(Reader, Location, "{")
+    if sr:
+        _, nlocation = sr
+        _, nlocation = AcceptWhitespace(Reader, nlocation)
+        proc, nlocation = AcceptCompoundStatement(Reader, nlocation)
+        _, nlocation = AcceptWhitespace(Reader, nlocation)
+        sr = AcceptString(Reader, nlocation, "}")
+        if sr:
+            _, Location = sr
+            return proc, Location
+
     # Integer literal
     sr = AcceptIntegerLiteral(Reader, Location)
     if sr:
