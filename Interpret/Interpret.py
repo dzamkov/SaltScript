@@ -454,6 +454,35 @@ class IfStatement(Statement):
             if self.OnFalse:
                 return self.OnFalse.Call(Variables)
 
+class BreakNotice:
+    Depth = 0
+    def __init__(self, Depth):
+        self.Depth = Depth
+
+class BreakStatement(Statement):
+    Depth = 0
+    def __init__(self, Depth):
+        self.Depth = Depth
+    def Call(self, Variables):
+        return BreakNotice(self.Depth)
+
+class WhileStatement(Statement):
+    Condition = None
+    Inner = None
+    def __init__(self, Condition, Inner):
+        self.Condition = Condition
+        self.Inner = Inner
+    def Call(self, Variables):
+        while self.Condition.Call(Variables):
+            lres = self.Inner.Call(Variables)
+            if lres.__class__ == BreakNotice:
+                if lres.Depth > 1:
+                    return BreakNotice(lres.Depth - 1)
+                else:
+                    return None
+            if not lres == None:
+                return lres
+
 def AcceptStatement(Reader, Location):
     
     # Monads would've cleared all this code up
@@ -556,6 +585,20 @@ def AcceptStatement(Reader, Location):
                         onfalse, Location = sr
                         return IfStatement(cond, ontrue, onfalse), Location
                 return IfStatement(cond, ontrue, None), Location
+
+    # While
+    sr = AcceptString(Reader, Location, "while")
+    if sr:
+        _, nlocation = sr
+        _, nlocation = AcceptWhitespace(Reader, nlocation)
+        sr = AcceptExpression(Reader, nlocation)
+        if sr:
+            cond, nlocation = sr
+            _, nlocation = AcceptWhitespace(Reader, nlocation)
+            sr = AcceptStatement(Reader, nlocation)
+            if sr:
+                inner, Location = sr
+                return WhileStatement(cond, inner), Location
 
     # Compound
     sr = AcceptString(Reader, Location, "{")
