@@ -105,6 +105,30 @@ def AcceptWhitespace(Reader, Location):
 
 
 
+class Variant:
+    Forms = None
+    FormsByName = None
+    def __init__(self, FormTypes, FormNames):
+        self.Forms = []
+        self.FormsByName = dict()
+        for i in range(0, len(FormNames)):
+            name = FormNames[i]
+            self.Forms.append((name, FormTypes[i]))
+            self.FormsByName[name] = i
+
+class VariantValue:
+    Type = None
+    Form = None
+    Data = None
+    def __init__(self, Type, Form, Data):
+        self.Type = Type
+        self.Form = Form
+        self.Data = Data
+
+def MakeMaybeVariant(InnerType):
+    return Variant([None, InnerType], ["nothing", "just"])
+
+
 
 class Expression:
     def Call(self, Variables): pass
@@ -186,6 +210,37 @@ def AcceptIntegerLiteral(Reader, Location):
     else:
         return False
 
+EscapeChars = {
+    '\\' : "\\",
+    'n' : "\n",
+    'r' : "\r",
+    't' : "\t",
+    '\"' : "\""
+}
+
+def AcceptStringLiteral(Reader, Location):
+    if Location < Reader.End():
+        schar = Reader.Read(Location)
+        if schar == "\"" or schar == "'":
+            Location = Location + 1
+            inescape = False
+            string = ""
+            while Location < Reader.End():
+                char = Reader.Read(Location)
+                if inescape:
+                    string = string + EscapeChars[char]
+                    inescape = False
+                else:
+                    if char == schar:
+                        Location = Location + 1
+                        break
+                    if char == "\\":
+                        inescape = True
+                    else:
+                        string = string + char
+                Location = Location + 1
+            return string, Location
+
 def AcceptAtomExpression(Reader, Location):
     # Brackets
     sr = AcceptString(Reader, Location, "(")
@@ -246,6 +301,12 @@ def AcceptAtomExpression(Reader, Location):
 
     # Integer literal
     sr = AcceptIntegerLiteral(Reader, Location)
+    if sr:
+        val, Location = sr
+        return LiteralExpression(val), Location
+
+    # String literal
+    sr = AcceptStringLiteral(Reader, Location)
     if sr:
         val, Location = sr
         return LiteralExpression(val), Location
@@ -317,6 +378,7 @@ Operators = {
     ">=" : (8, True, lambda arg: arg[0] >= arg[1]),
     "+" : (9, True, lambda arg: arg[0] + arg[1]),
     "-" : (9, True, lambda arg: arg[0] - arg[1]),
+    "++" : (9, True, lambda arg: arg[0] + arg[1]),
     "*" : (10, True, lambda arg: arg[0] * arg[1]),
     "/" : (10, True, lambda arg: arg[0] / arg[1]),
     "%" : (10, True, lambda arg: arg[0] % arg[1])
@@ -632,15 +694,33 @@ def AcceptCompoundStatement(Reader, Location):
     else:
         return CompoundStatement([]), Location
 
+DefaultVariables = {
+    # Types
+    "type" : type,
+    "int" : int,
+    "string" : str,
+    "char" : chr,
+    "bool" : bool,
+    "maybe" : MakeMaybeVariant,
+
+    # Constants
+    "true" : True,
+    "false" : False,
+
+    # Unary operations
+    "negative" : (lambda arg: -arg),
+    "not" : (lambda arg: not arg)
+}
+
 def InterpretFile(File):
     f = open(File, 'r')
     s = f.read()
     exp = AcceptCompoundStatement(StringReader(s), 0)
-    return exp[0].Call(dict())
+    return exp[0].Call(DefaultVariables.copy())
 
 def EvaluateString(String):
     exp = AcceptExpression(StringReader(String), 0)
-    return exp[0].Call(dict())
+    return exp[0].Call(DefaultVariables.copy())
     
 res = InterpretFile("test.salt")
 print(res)
