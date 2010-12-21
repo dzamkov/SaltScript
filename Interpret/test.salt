@@ -1,1 +1,1 @@
-return "hello world".length;
+return ("hello" ++ "world" ++ " hi").length;

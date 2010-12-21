@@ -442,16 +442,19 @@ def AcceptArgumentList(Reader, Location, WithNames):
 
 def AcceptOperator(Reader, Location):
     i = 0
-    opstr = ""
+    opname = ""
+    match = None
     while i < OperatorMaxLen and Location < Reader.End():
         char = Reader.Read(Location)
-        opstr = opstr + char
+        opname = opname + char
         try:
-            opstr, opassoc, opdef = Operators[opstr]
-            return (opstr, opassoc, opdef), Location + 1
+            opstr, opassoc, opdef = Operators[opname]
+            match = (opname, opstr, opassoc, opdef), Location + 1
         except(KeyError):
-            Location = Location + 1
-            i = i + 1
+            pass
+        Location = Location + 1
+        i = i + 1
+    return match
             
 def AcceptExpression(Reader, Location):
     sr = AcceptTightExpression(Reader, Location)
@@ -477,7 +480,8 @@ def AcceptExpression(Reader, Location):
             sr = AcceptOperator(Reader, nlocation)
             if sr:
                 opdata, nlocation = sr
-                opstr, opassoc, opdef = opdata
+                _, nlocation = AcceptWhitespace(Reader, nlocation)
+                opname, opstr, opassoc, opdef = opdata
                 sr = AcceptTightExpression(Reader, nlocation)
                 if sr:
                     exp, Location = sr
