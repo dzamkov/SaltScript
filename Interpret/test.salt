@@ -1,1 +1,1 @@
-return just(int)(5);
+return "hello world".length;

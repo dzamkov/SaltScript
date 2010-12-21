@@ -21,14 +21,10 @@ def AcceptString(Reader, Location, String):
 
 def IsWordChar(Char):
     ascii = ord(Char)
-    if ascii >= 94 and ascii <= 122: return True  # ^ _ ` Lowercase
+    if ascii >= 95 and ascii <= 122: return True  # _ ` Lowercase
     if ascii >= 65 and ascii <= 90: return True # Capitals
-    if ascii >= 47 and ascii <= 58: return True # / Numerals :
-    if ascii == 33: return True # !
-    if ascii >= 35 and ascii <= 39: return True # # $ % & '
-    if ascii >= 42 and ascii <= 43: return True # * +
-    if ascii == 45: return True # -
-    if ascii >= 60 and ascii <= 63: return True # < = > ?
+    if ascii >= 48 and ascii <= 58: return True # Numerals :
+    if ascii == 39: return True # '
     if ascii == 126: return True # ~
     return False
 
@@ -177,6 +173,18 @@ class FunctionDefineExpression(Expression):
             self.MapVarsFunc(Argument, nvars)
             return self.Function.Call(nvars)
         return FuncCall
+
+class AccessorExpression(Expression):
+    Object = None
+    Property = None
+    def __init__(self, Object, Property):
+        self.Object = Object
+        self.Property = Property
+    def Call(self, Variables):
+        objres = self.Object.Call(Variables)
+        if objres.__class__ == Variant:
+            return lambda arg: VariantValue(objres, objres.FormsByName[self.Property], arg)
+        return Variables[self.Property](objres)
 
 class TupleExpression(Expression):
     Items = None
@@ -367,6 +375,17 @@ def AcceptTightExpression(Reader, Location):
                     else:
                         exp = FunctionCallExpression(exp, TupleExpression(arglist))
                     continue
+
+            # Accessor
+            sr = AcceptString(Reader, nlocation, ".")
+            if sr:
+                _, nlocation = sr
+                _, nlocation = AcceptWhitespace(Reader, nlocation)
+                sr = AcceptWord(Reader, nlocation)
+                if sr:
+                    prop, Location = sr
+                    exp = AccessorExpression(exp, prop)
+                    continue
             break
         return exp, Location
 
@@ -383,6 +402,10 @@ Operators = {
     "/" : (10, True, lambda arg: arg[0] / arg[1]),
     "%" : (10, True, lambda arg: arg[0] % arg[1])
 }
+OperatorMaxLen = 0
+for k, v in Operators.items():
+    if len(k) > OperatorMaxLen:
+        OperatorMaxLen = len(k)
 
 def AcceptArgumentList(Reader, Location, WithNames):
     typeli = []
@@ -416,6 +439,19 @@ def AcceptArgumentList(Reader, Location, WithNames):
         return (typeli, nameli), Location
     else:
         return typeli, Location
+
+def AcceptOperator(Reader, Location):
+    i = 0
+    opstr = ""
+    while i < OperatorMaxLen and Location < Reader.End():
+        char = Reader.Read(Location)
+        opstr = opstr + char
+        try:
+            opstr, opassoc, opdef = Operators[opstr]
+            return (opstr, opassoc, opdef), Location + 1
+        except(KeyError):
+            Location = Location + 1
+            i = i + 1
             
 def AcceptExpression(Reader, Location):
     sr = AcceptTightExpression(Reader, Location)
@@ -438,19 +474,15 @@ def AcceptExpression(Reader, Location):
         optree = firstexp
         while True:
             _, nlocation = AcceptWhitespace(Reader, Location)
-            sr = AcceptWord(Reader, nlocation)
+            sr = AcceptOperator(Reader, nlocation)
             if sr:
-                opname, nlocation = sr
-                try:
-                    opstr, opassoc, opdef = Operators[opname]
-                    _, nlocation = AcceptWhitespace(Reader, nlocation)
-                    sr = AcceptTightExpression(Reader, nlocation)
-                    if sr:
-                        exp, Location = sr
-                        optree = Merge(optree, (opname, opstr, opassoc, opdef), exp)
-                        continue
-                except(KeyError):
-                    break
+                opdata, nlocation = sr
+                opstr, opassoc, opdef = opdata
+                sr = AcceptTightExpression(Reader, nlocation)
+                if sr:
+                    exp, Location = sr
+                    optree = Merge(optree, (opname, opstr, opassoc, opdef), exp)
+                    continue
             break
         return Convert(optree), Location
     return False
@@ -694,6 +726,11 @@ def AcceptCompoundStatement(Reader, Location):
     else:
         return CompoundStatement([]), Location
 
+
+class SyntaxException(BaseException):
+    pass
+    
+
 DefaultVariables = {
     # Types
     "type" : type,
@@ -709,14 +746,21 @@ DefaultVariables = {
 
     # Unary operations
     "negative" : (lambda arg: -arg),
-    "not" : (lambda arg: not arg)
+    "not" : (lambda arg: not arg),
+    "length" : (lambda arg: len(arg))
 }
 
 def InterpretFile(File):
     f = open(File, 'r')
     s = f.read()
-    exp = AcceptCompoundStatement(StringReader(s), 0)
-    return exp[0].Call(DefaultVariables.copy())
+    sr = StringReader(s)
+    _, nlocation = AcceptWhitespace(sr, 0)
+    exp = AcceptCompoundStatement(StringReader(s), nlocation)
+    _, nlocation = AcceptWhitespace(sr, exp[1])
+    if nlocation == len(s):
+        return exp[0].Call(DefaultVariables.copy())
+    else:
+        raise SyntaxException()
 
 def EvaluateString(String):
     exp = AcceptExpression(StringReader(String), 0)
