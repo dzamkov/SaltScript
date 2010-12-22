@@ -1,1 +1,5 @@
-return ("hello" ++ "world" ++ " hi").length;
+<type, type>type either = (type a, type b) => variant {
+	left(a),
+	right(b)
+};
+return either(int, string).left(4);

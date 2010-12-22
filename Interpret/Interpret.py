@@ -48,6 +48,36 @@ def IsWord(String):
             return False
     return len(String) > 0 and not IsDigit(String[0]) and not (String in Keywords)
 
+def AcceptDelimited(Reader, Location, DelimiterPattern, PartPattern):
+    li = []
+    sr = PartPattern(Reader, Location)
+    if sr:
+        first, Location = sr
+        li.append(first)
+        while True:
+            sr = DelimiterPattern(Reader, Location)
+            if sr:
+                _, nlocation = sr
+                sr = PartPattern(Reader, nlocation)
+                if sr:
+                    pat, Location = sr
+                    li.append(pat)
+                    continue
+            break
+        return li, Location
+    return [], Location
+
+def AcceptPadded(Reader, Location, Pattern):
+    _, nlocation = AcceptWhitespace(Reader, Location)
+    sr = Pattern(Reader, nlocation)
+    if sr:
+        res, nlocation = sr
+        _, Location = AcceptWhitespace(Reader, nlocation)
+        return res, Location
+
+def AcceptSpaceCommaSpace(Reader, Location):
+    return AcceptPadded(Reader, Location, lambda reader, location: AcceptString(reader, location, ","))
+
 def AcceptWord(Reader, Location):
     word = ""
     first = True
@@ -102,15 +132,11 @@ def AcceptWhitespace(Reader, Location):
 
 
 class Variant:
-    Forms = None
+    FormTypes = None
     FormsByName = None
-    def __init__(self, FormTypes, FormNames):
-        self.Forms = []
-        self.FormsByName = dict()
-        for i in range(0, len(FormNames)):
-            name = FormNames[i]
-            self.Forms.append((name, FormTypes[i]))
-            self.FormsByName[name] = i
+    def __init__(self, FormTypes, FormsByName):
+        self.FormTypes = FormTypes
+        self.FormsByName = FormsByName
 
 class VariantValue:
     Type = None
@@ -122,7 +148,7 @@ class VariantValue:
         self.Data = Data
 
 def MakeMaybeVariant(InnerType):
-    return Variant([None, InnerType], ["nothing", "just"])
+    return Variant([None, InnerType], {"nothing" : 0, "just" : 1})
 
 
 
@@ -193,6 +219,15 @@ class TupleExpression(Expression):
     def Call(self, Variables):
         return [x.Call(Variables) for x in self.Items]
 
+class VariantExpression(Expression):
+    FormsByName = None
+    FormTypes = None
+    def __init__(self, FormTypes, FormsByName):
+        self.FormTypes = FormTypes
+        self.FormsByName = FormsByName
+    def Call(self, Variables):
+        return Variant([x.Call(Variables) for x in self.FormTypes], self.FormsByName)
+
 def MakeLambda(ArgumentList, Expression):
     typelist, namelist = ArgumentList
     def MapVarsFunc(Argument, Variables):
@@ -248,6 +283,35 @@ def AcceptStringLiteral(Reader, Location):
                         string = string + char
                 Location = Location + 1
             return string, Location
+
+def AcceptInnerVariant(Reader, Location):
+    def AcceptVariantForm(Reader, Location):
+        sr = AcceptWord(Reader, Location)
+        if sr:
+            formname, Location = sr
+            _, nlocation = AcceptWhitespace(Reader, Location)
+            sr = AcceptString(Reader, nlocation, "(")
+            if sr:
+                _, nlocation = sr
+                sr = AcceptPadded(Reader, nlocation, lambda reader, location: AcceptArgumentList(reader, location, False))
+                if sr:
+                    argtypes, nlocation = sr
+                    sr = AcceptString(Reader, nlocation, ")")
+                    if sr:
+                        _, Location = sr
+                        if len(argtypes) == 1:
+                            return (formname, argtypes[0]), Location
+                        else:
+                            return (formname, TupleExpression(argtypes)), Location
+            return (formname, None), Location
+    forms, Location = AcceptDelimited(Reader, Location, AcceptSpaceCommaSpace, AcceptVariantForm)
+    formtypes = [x[1] for x in forms]
+    formsbyname = dict()
+    i = 0
+    for form in forms:
+        formsbyname[form[0]] = i
+        i = i + 1
+    return VariantExpression(formtypes, formsbyname), Location
 
 def AcceptAtomExpression(Reader, Location):
     # Brackets
@@ -306,6 +370,23 @@ def AcceptAtomExpression(Reader, Location):
                     if sr:
                         _, Location = sr
                         return MakeLambda(arglist, proc), Location
+
+    # Variant type definition
+    sr = AcceptString(Reader, Location, "variant")
+    if sr:
+        _, nlocation = sr
+        _, nlocation = AcceptWhitespace(Reader, nlocation)
+        sr = AcceptString(Reader, nlocation, "{")
+        if sr:
+            _, nlocation = sr
+            sr = AcceptPadded(Reader, nlocation, AcceptInnerVariant)
+            if sr:
+                variant, nlocation = sr
+                _, nlocation = AcceptWhitespace(Reader, nlocation)
+                sr = AcceptString(Reader, nlocation, "}")
+                if sr:
+                    _, Location = sr
+                    return variant, Location
 
     # Integer literal
     sr = AcceptIntegerLiteral(Reader, Location)
