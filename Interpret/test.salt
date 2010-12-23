@@ -1,5 +1,3 @@
-<type, type>type either = (type a, type b) => variant {
-	left(a),
-	right(b)
+return function(string input) {
+	return newlist().append(input.element(0));
 };
-return either(int, string).left(4);

@@ -832,7 +832,13 @@ DefaultVariables = {
     # Unary operations
     "negative" : (lambda arg: -arg),
     "not" : (lambda arg: not arg),
-    "length" : (lambda arg: len(arg))
+
+    # List / string
+    "length" : (lambda arg: len(arg)),
+    "sub" : (lambda aarg: lambda barg: aarg[barg[0]:barg[1]]),
+    "newlist" : (lambda arg: []),
+    "element" : (lambda aarg: lambda barg: aarg[barg]),
+    "append" : (lambda aarg: lambda barg: aarg + [barg])
 }
 
 def InterpretFile(File):
