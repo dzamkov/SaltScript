@@ -1,3 +1,30 @@
+/* The result of a parsing function, which can either be a list of
+ * possible interpretations and the index of the next unparsed character,
+ * or an syntax error message with the relevant character index.
+ */
+<type>type parseResult = (type data) => variant {
+	success(list(data, int)),
+	problem(int, string)
+};
+
+/* The type constructor of a parsing function. A parsing function, when
+ * given a string to parse will return a list of possible interpretations
+ * of the string, and the index of the next unparsed character in the string.
+ */
+<type>type parser = (type data) => parseResult;
+
+/* A parser for some amount of whitespace. Comments, tabs and newlines
+ * are treated as whitespace.
+ */
+parser() whitespaceParser = function(string input) {
+
+};
+
+/*	Given a saltscript program (in string form) that takes a string and
+ * returns another string, creates a string form of a c program
+ * that will take a string as input, apply the saltscript program's function
+ * and gives the return value as output.
+ */
 return function(string input) {
-	return newlist().append(input.element(0));
+	return "";
 };

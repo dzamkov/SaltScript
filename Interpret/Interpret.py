@@ -319,15 +319,15 @@ def AcceptAtomExpression(Reader, Location):
     if sr:
         _, nlocation = sr
         _, nlocation = AcceptWhitespace(Reader, nlocation)
-        sr = AcceptExpression(Reader, nlocation)
+        arglist, nlocation = AcceptArgumentList(Reader, nlocation, False)
+        sr = AcceptString(Reader, nlocation, ")")
         if sr:
-            iexp, nlocation = sr
-            _, nlocation = AcceptWhitespace(Reader, nlocation)
-            sr = AcceptString(Reader, nlocation, ")")
-            if sr:
-                _, Location = sr
-                return iexp, Location
-
+            _, Location = sr
+            if len(arglist) == 1:
+                return arglist[0], Location
+            else:
+                return TupleExpression(arglist), Location
+            
     # Single variable
     sr = AcceptWord(Reader, Location)
     if sr:
@@ -836,7 +836,7 @@ DefaultVariables = {
     # List / string
     "length" : (lambda arg: len(arg)),
     "sub" : (lambda aarg: lambda barg: aarg[barg[0]:barg[1]]),
-    "newlist" : (lambda arg: []),
+    "empty" : (lambda arg: []),
     "element" : (lambda aarg: lambda barg: aarg[barg]),
     "append" : (lambda aarg: lambda barg: aarg + [barg])
 }
