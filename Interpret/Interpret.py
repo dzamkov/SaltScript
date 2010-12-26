@@ -154,6 +154,7 @@ def MakeMaybeVariant(InnerType):
 
 class Expression:
     def Call(self, Variables): pass
+    def Substitute(self, Variables): return self
 
 class VariableExpression(Expression):
     VarName = None
@@ -161,6 +162,11 @@ class VariableExpression(Expression):
         self.VarName = VarName
     def Call(self, Variables):
         return Variables[self.VarName]
+    def Substitute(self, Variables):
+        try:
+            return Variables[self.VarName]
+        except:
+            return self
 
 class LiteralExpression(Expression):
     Value = None
@@ -175,6 +181,9 @@ class ProcedureExpression(Expression):
         self.Statement = Statement
     def Call(self, Variables):
         return self.Statement.Call(self, Variables)
+    def Substitute(self, Variables):
+        self.Statement = self.Statement.Substitute(Variables)
+        return self
 
 class FunctionCallExpression(Expression):
     Function = None
@@ -184,6 +193,10 @@ class FunctionCallExpression(Expression):
         self.Argument = Argument
     def Call(self, Variables):
         return self.Function.Call(Variables)(self.Argument.Call(Variables))
+    def Substitute(self, Variables):
+        self.Function = self.Function.Substitute(Variables)
+        self.Argument = self.Argument.Substitute(Variables)
+        return self
 
 class FunctionDefineExpression(Expression):
     Function = None
@@ -199,6 +212,9 @@ class FunctionDefineExpression(Expression):
             self.MapVarsFunc(Argument, nvars)
             return self.Function.Call(nvars)
         return FuncCall
+    def Substitute(self, Variables):
+        self.Function = self.Function.Substitute(Variables)
+        return self
 
 class AccessorExpression(Expression):
     Object = None
@@ -211,6 +227,9 @@ class AccessorExpression(Expression):
         if objres.__class__ == Variant:
             return lambda arg: VariantValue(objres, objres.FormsByName[self.Property], arg)
         return Variables[self.Property](objres)
+    def Substitute(self, Variables):
+        self.Object = self.Object.Substitute(Variables)
+        return self
 
 class TupleExpression(Expression):
     Items = None
@@ -218,6 +237,10 @@ class TupleExpression(Expression):
         self.Items = Items
     def Call(self, Variables):
         return [x.Call(Variables) for x in self.Items]
+    def Substitute(self, Variables):
+        for i in range(0, len(self.Items)):
+            self.Items[i] = self.Items[i].Substitute(Variables)
+        return self
 
 class VariantExpression(Expression):
     FormsByName = None
@@ -227,6 +250,10 @@ class VariantExpression(Expression):
         self.FormsByName = FormsByName
     def Call(self, Variables):
         return Variant([x.Call(Variables) for x in self.FormTypes], self.FormsByName)
+    def Substitute(self, Variables):
+        for i in range(0, len(self.Items)):
+            self.FormTypes[i] = self.FormTypes[i].Substitute(Variables)
+        return self
 
 def MakeLambda(ArgumentList, Expression):
     typelist, namelist = ArgumentList
@@ -578,6 +605,7 @@ def AcceptExpression(Reader, Location):
 
 class Statement:
     def Call(self, Variables): pass
+    def Substitute(self, Variables): pass
 
 class DefineStatement(Statement):
     Type = None
@@ -589,6 +617,9 @@ class DefineStatement(Statement):
         self.Value = Value
     def Call(self, Variables):
         Variables[self.VarName] = self.Value.Call(Variables)
+    def Substitute(self, Variables):
+        self.Type = self.Type.Substitute(Variables)
+        return self
 
 class AssignStatement(Statement):
     VarName = None
@@ -598,6 +629,9 @@ class AssignStatement(Statement):
         self.Value = Value
     def Call(self, Variables):
         Variables[self.VarName] = self.Value.Call(Variables)
+    def Substitute(self, Variables):
+        self.Value = self.Value.Substitute(Variables)
+        return self
 
 class ReturnStatement(Statement):
     Value = None
@@ -605,6 +639,9 @@ class ReturnStatement(Statement):
         self.Value = Value
     def Call(self, Variables):
         return self.Value.Call(Variables)
+    def Substitute(self, Variables):
+        self.Value = self.Value.Substitute(Variables)
+        return self
 
 class CompoundStatement(Statement):
     SubStatements = None
@@ -616,6 +653,10 @@ class CompoundStatement(Statement):
             if not res == None:
                 return res
         return None
+    def Substitute(self, Variables):
+        for i in range(0, len(self.SubStatements)):
+            self.SubStatements[i] = self.SubStatements[i].Substitute(Variables)
+        return self
 
 class IfStatement(Statement):
     Condition = None
@@ -632,6 +673,11 @@ class IfStatement(Statement):
         else:
             if self.OnFalse:
                 return self.OnFalse.Call(Variables)
+    def Substitute(self, Variables):
+        self.Condition = self.Condition.Substitute(Variables)
+        self.OnTrue = self.OnTrue.Substitute(Variables)
+        self.OnFalse = self.OnFalse.Substitute(Variables)
+        return self
 
 class BreakNotice:
     Depth = 0
@@ -661,6 +707,28 @@ class WhileStatement(Statement):
                     return None
             if not lres == None:
                 return lres
+    def Substitute(self, Variables):
+        self.Condition = self.Condition.Substitute(Variables)
+        self.Inner = self.Inner.Substitute(Variables)
+
+class FixStatement(Statement):
+    Types = None
+    Names = None
+    Values = None
+    def __init__(self, Types, Names, Values):
+        self.Types = Types
+        self.Names = Names
+        self.Values = Values
+    def Substitute(self, Variables):
+        for n in self.Names:
+            try:
+                Variables.pop(n)
+            except:
+                pass
+        for i in range(0, len(self.Values)):
+            self.Types[i] = self.Types[i].Substitute(Variables)
+            self.Values[i] = self.Values[i].Substitute(Variables)
+        return self
 
 def AcceptStatement(Reader, Location):
     

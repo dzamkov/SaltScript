@@ -1,30 +1,37 @@
-/* The result of a parsing function, which can either be a list of
- * possible interpretations and the index of the next unparsed character,
- * or an syntax error message with the relevant character index.
- */
+/*************************************************************************
+ * Parsing
+ ************************************************************************/
+// Gives a description of a problem (syntax error) during parsing. A parse
+// error includes the name of the expected symbol, the location it was
+// excepted at and the possible errors afterward that may have lead to
+// the following string not being accepted as the symbol.
+fix {
+	type parseError = (string, int, [parseError])
+}
+
+// The result of a parsing function, which can either be a list of
+// possible interpretations and the index of the next unparsed character,
+// or an syntax error message with the relevant character index.
 <type>type parseResult = (type data) => variant {
 	success(list(data, int)),
-	problem(int, string)
+	problem(parseError)
 };
 
-/* The type constructor of a parsing function. A parsing function, when
- * given a string to parse will return a list of possible interpretations
- * of the string, and the index of the next unparsed character in the string.
- */
-<type>type parser = (type data) => parseResult;
+// The type constructor of a parsing function. A parsing function, when
+// given a string to parse will return a list of possible interpretations
+// of the string, and the index of the next unparsed character in the string.
+<type>type parser = (type data) => <string, int>parseResult(data);
 
-/* A parser for some amount of whitespace. Comments, tabs and newlines
- * are treated as whitespace.
- */
-parser() whitespaceParser = function(string input) {
+// A parser for some amount of whitespace. Comments, tabs and newlines
+// are treated as whitespace.
+parser() whitespaceParser = function(string input, int start) {
 
 };
 
-/*	Given a saltscript program (in string form) that takes a string and
- * returns another string, creates a string form of a c program
- * that will take a string as input, apply the saltscript program's function
- * and gives the return value as output.
- */
+//	Given a saltscript program (in string form) that takes a string and
+// returns another string, creates a string form of a c program
+// that will take a string as input, apply the saltscript program's function
+// and gives the return value as output.
 return function(string input) {
 	return "";
 };
