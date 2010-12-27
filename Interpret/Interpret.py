@@ -161,7 +161,7 @@ class VariableExpression(Expression):
     def Clone(self):
         return VariableExpression(self.VarName)
     def Call(self, Variables):
-        return Variables[self.VarName].Call(None)
+        return Variables[self.VarName].Call(dict())
     def Substitute(self, Variables):
         try:
             return Variables[self.VarName]
@@ -265,21 +265,22 @@ class VariantExpression(Expression):
     def Call(self, Variables):
         return Variant([x.Call(Variables) for x in self.FormTypes], self.FormsByName)
     def Substitute(self, Variables):
-        for i in range(0, len(self.Items)):
+        for i in range(0, len(self.FormTypes)):
             self.FormTypes[i] = self.FormTypes[i].Substitute(Variables)
         return self
 
 def MakeLambda(ArgumentList, Expression):
-    typelist, namelist = ArgumentList
     def MapVarsFunc(Argument, Variables):
         if type(Argument) == tuple or type(Argument) == list:
-            for i in range(0, len(namelist)):
-                Variables[namelist[i]] = Argument[i]
+            for i in range(0, len(ArgumentList)):
+                _, varname = ArgumentList[i]
+                if varname:
+                    Variables[varname] = LiteralExpression(Argument[i])
         else:
-            Variables[namelist[0]] = Argument
-    if len(typelist) == 1:
-        return FunctionDefineExpression(Expression, typelist[0], MapVarsFunc)
-    return FunctionDefineExpression(Expression, TupleExpression(typelist), MapVarsFunc)
+            Variables[ArgumentList[0][1]] = LiteralExpression(Argument)
+    if len(ArgumentList) == 1:
+        return FunctionDefineExpression(Expression, ArgumentList[0][0], MapVarsFunc)
+    return FunctionDefineExpression(Expression, TupleExpression([x[0] for x in ArgumentList]), MapVarsFunc)
 
 def AcceptIntegerLiteral(Reader, Location):
     intstr = ""
@@ -334,7 +335,7 @@ def AcceptInnerVariant(Reader, Location):
             sr = AcceptString(Reader, nlocation, "(")
             if sr:
                 _, nlocation = sr
-                sr = AcceptPadded(Reader, nlocation, lambda reader, location: AcceptArgumentList(reader, location, False))
+                sr = AcceptPadded(Reader, nlocation, lambda reader, location: AcceptExpressionList(reader, location))
                 if sr:
                     argtypes, nlocation = sr
                     sr = AcceptString(Reader, nlocation, ")")
@@ -360,7 +361,7 @@ def AcceptAtomExpression(Reader, Location):
     if sr:
         _, nlocation = sr
         _, nlocation = AcceptWhitespace(Reader, nlocation)
-        arglist, nlocation = AcceptArgumentList(Reader, nlocation, False)
+        arglist, nlocation = AcceptExpressionList(Reader, nlocation)
         sr = AcceptString(Reader, nlocation, ")")
         if sr:
             _, Location = sr
@@ -396,7 +397,7 @@ def AcceptAtomExpression(Reader, Location):
         if sr:
             _, nlocation = sr
             _, nlocation = AcceptWhitespace(Reader, nlocation)
-            arglist, nlocation = AcceptArgumentList(Reader, nlocation, True)
+            arglist, nlocation = AcceptArgumentDefinitionList(Reader, nlocation)
             sr = AcceptString(Reader, nlocation, ")")
             if sr:
                 _, nlocation = sr
@@ -447,7 +448,7 @@ def AcceptTightExpression(Reader, Location):
     if sr:
         _, nlocation = sr
         _, nlocation = AcceptWhitespace(Reader, nlocation)
-        arglist, nlocation = AcceptArgumentList(Reader, nlocation, True)
+        arglist, nlocation = AcceptArgumentDefinitionList(Reader, nlocation)
         sr = AcceptString(Reader, nlocation, ")")
         if sr:
             _, nlocation = sr
@@ -466,7 +467,7 @@ def AcceptTightExpression(Reader, Location):
     if sr:
         _, nlocation = sr
         _, nlocation = AcceptWhitespace(Reader, nlocation)
-        arglist, nlocation = AcceptArgumentList(Reader, nlocation, True)
+        arglist, nlocation = AcceptArgumentDefinitionList(Reader, nlocation)
         sr = AcceptString(Reader, nlocation, ">")
         if sr:
             _, nlocation = sr
@@ -487,7 +488,7 @@ def AcceptTightExpression(Reader, Location):
             if sr:
                 _, nlocation = sr
                 _, nlocation = AcceptWhitespace(Reader, nlocation)
-                arglist, nlocation = AcceptArgumentList(Reader, nlocation, False)
+                arglist, nlocation = AcceptExpressionList(Reader, nlocation)
                 _, nlocation = AcceptWhitespace(Reader, nlocation)
                 sr = AcceptString(Reader, nlocation, ")")
                 if sr:
@@ -529,38 +530,21 @@ for k, v in Operators.items():
     if len(k) > OperatorMaxLen:
         OperatorMaxLen = len(k)
 
-def AcceptArgumentList(Reader, Location, WithNames):
-    typeli = []
-    nameli = []
-    first = True
-    nlocation = Location
-    while True:
-        if first:
-            first = False
-        else:
-            _, nlocation = AcceptWhitespace(Reader, Location)
-            sr = AcceptString(Reader, nlocation, ",")
-            if not sr:
-                break
-            _, nlocation = sr
+def AcceptArgumentDefinitionList(Reader, Location):
+    def AcceptArgumentDefinition(Reader, Location):
+        sr = AcceptTightExpression(Reader, Location)
+        if sr:
+            ttype, nlocation = sr
             _, nlocation = AcceptWhitespace(Reader, nlocation)
-        sr = AcceptTightExpression(Reader, nlocation)
-        if not sr:
-            break
-        ttype, Location = sr
-        _, nlocation = AcceptWhitespace(Reader, Location)
-        if WithNames:
             sr = AcceptWord(Reader, nlocation)
             if sr:
-                varname, Location = sr
-                nameli.append(varname)
-            else:
-                nameli.append(None)
-        typeli.append(ttype)
-    if WithNames:
-        return (typeli, nameli), Location
-    else:
-        return typeli, Location
+                name, Location = sr
+                return (ttype, name), Location
+            return (ttype, None), nlocation
+    return AcceptDelimited(Reader, Location, AcceptSpaceCommaSpace, AcceptArgumentDefinition)
+
+def AcceptExpressionList(Reader, Location):
+    return AcceptDelimited(Reader, Location, AcceptSpaceCommaSpace, AcceptExpression)
 
 def AcceptOperator(Reader, Location):
     i = 0
@@ -750,7 +734,7 @@ class FixStatement(Statement):
         innervals = dict()
         for var in self.Vars:
             ttype, name, val = var
-            innervals[name] = val
+            innervals[name] = val.Clone().Substitute(Variables)
         for name, val in innervals.items():
             Variables[name] = val.Substitute(innervals)
     def Substitute(self, Variables):
@@ -926,6 +910,7 @@ DefaultVariables = {
     "char" : chr,
     "bool" : bool,
     "maybe" : MakeMaybeVariant,
+    "list" : (lambda arg: list),
 
     # Constants
     "true" : True,
@@ -942,6 +927,7 @@ DefaultVariables = {
     "element" : (lambda aarg: lambda barg: aarg[barg]),
     "append" : (lambda aarg: lambda barg: aarg + [barg])
 }
+DefaultVariables = { k : LiteralExpression(v) for k, v in DefaultVariables.items() }
 
 def InterpretFile(File):
     f = open(File, 'r')

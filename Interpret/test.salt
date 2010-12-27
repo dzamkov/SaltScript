@@ -9,6 +9,18 @@ fix {
 	type parseError = (string, int, list(parseError))
 }
 
+fix {
+	<int>int recursiveFact = function (int num) {
+		if (num <= 1) {
+			return 1;
+		} else {
+			return recursiveFact(num - 1) * num;
+		}
+	}
+}
+
+return recursiveFact;
+
 // The result of a parsing function, which can either be a list of
 // possible interpretations and the index of the next unparsed character,
 // or an syntax error message with the relevant character index.
