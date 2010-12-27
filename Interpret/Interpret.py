@@ -128,9 +128,6 @@ def AcceptWhitespace(Reader, Location):
         Location = Location + 1
     return True, Location
 
-
-
-
 class Variant:
     FormTypes = None
     FormsByName = None
@@ -153,6 +150,7 @@ def MakeMaybeVariant(InnerType):
 
 
 class Expression:
+    def Clone(self): pass
     def Call(self, Variables): pass
     def Substitute(self, Variables): return self
 
@@ -160,8 +158,10 @@ class VariableExpression(Expression):
     VarName = None
     def __init__(self, VarName):
         self.VarName = VarName
+    def Clone(self):
+        return VariableExpression(self.VarName)
     def Call(self, Variables):
-        return Variables[self.VarName]
+        return Variables[self.VarName].Call(None)
     def Substitute(self, Variables):
         try:
             return Variables[self.VarName]
@@ -172,6 +172,8 @@ class LiteralExpression(Expression):
     Value = None
     def __init__(self, Value):
         self.Value = Value
+    def Clone(self):
+        return LiteralExpression(self.Value)
     def Call(self, Variables):
         return self.Value
 
@@ -179,6 +181,8 @@ class ProcedureExpression(Expression):
     Statement = None
     def __init__(self, Statement):
         self.Statement = Statement
+    def Clone(self):
+        return ProcedureExpression(self.Statement.Clone())
     def Call(self, Variables):
         return self.Statement.Call(self, Variables)
     def Substitute(self, Variables):
@@ -191,6 +195,8 @@ class FunctionCallExpression(Expression):
     def __init__(self, Function, Argument):
         self.Function = Function
         self.Argument = Argument
+    def Clone(self):
+        return FunctionCallExpression(self.Function.Clone(), self.Argument.Clone())
     def Call(self, Variables):
         return self.Function.Call(Variables)(self.Argument.Call(Variables))
     def Substitute(self, Variables):
@@ -206,6 +212,8 @@ class FunctionDefineExpression(Expression):
         self.Function = Function
         self.ArgumentType = ArgumentType
         self.MapVarsFunc = MapVarsFunc
+    def Clone(self):
+        return FunctionDefineExpression(self.Function.Clone(), self.ArgumentType, self.MapVarsFunc)
     def Call(self, Variables):
         nvars = Variables.copy()
         def FuncCall(Argument):
@@ -222,6 +230,8 @@ class AccessorExpression(Expression):
     def __init__(self, Object, Property):
         self.Object = Object
         self.Property = Property
+    def Clone(self):
+        return AccessorExpression(self.Object.Clone(), self.Property)
     def Call(self, Variables):
         objres = self.Object.Call(Variables)
         if objres.__class__ == Variant:
@@ -235,6 +245,8 @@ class TupleExpression(Expression):
     Items = None
     def __init__(self, Items):
         self.Items = Items
+    def Clone(self):
+        return TupleExpression([x.Clone() for x in self.Items])
     def Call(self, Variables):
         return [x.Call(Variables) for x in self.Items]
     def Substitute(self, Variables):
@@ -248,6 +260,8 @@ class VariantExpression(Expression):
     def __init__(self, FormTypes, FormsByName):
         self.FormTypes = FormTypes
         self.FormsByName = FormsByName
+    def Clone(self):
+        return VariantExpression([x.Clone() for x in self.FormTypes], self.FormsByName)
     def Call(self, Variables):
         return Variant([x.Call(Variables) for x in self.FormTypes], self.FormsByName)
     def Substitute(self, Variables):
@@ -604,6 +618,7 @@ def AcceptExpression(Reader, Location):
 
 
 class Statement:
+    def Clone(self): pass
     def Call(self, Variables): pass
     def Substitute(self, Variables): pass
 
@@ -615,8 +630,10 @@ class DefineStatement(Statement):
         self.Type = Type
         self.VarName = VarName
         self.Value = Value
+    def Clone(self):
+        return DefineStatement(self.Type.Clone(), self.VarName, self.Value.Clone())
     def Call(self, Variables):
-        Variables[self.VarName] = self.Value.Call(Variables)
+        Variables[self.VarName] = self.Value.Clone().Substitute(Variables)
     def Substitute(self, Variables):
         self.Type = self.Type.Substitute(Variables)
         return self
@@ -627,8 +644,10 @@ class AssignStatement(Statement):
     def __init__(self, VarName, Value):
         self.VarName = VarName
         self.Value = Value
+    def Clone(self):
+        return AssignStatement(self.VarName, self.Value.Clone())
     def Call(self, Variables):
-        Variables[self.VarName] = self.Value.Call(Variables)
+        Variables[self.VarName] = self.Value.Clone().Substitute(Variables)
     def Substitute(self, Variables):
         self.Value = self.Value.Substitute(Variables)
         return self
@@ -637,6 +656,8 @@ class ReturnStatement(Statement):
     Value = None
     def __init__(self, Value):
         self.Value = Value
+    def Clone(self):
+        return ReturnStatement(self.Value.Clone())
     def Call(self, Variables):
         return self.Value.Call(Variables)
     def Substitute(self, Variables):
@@ -647,6 +668,8 @@ class CompoundStatement(Statement):
     SubStatements = None
     def __init__(self, SubStatements):
         self.SubStatements = SubStatements
+    def Clone(self):
+        return CompoundStatement([x.Clone() for x in self.SubStatements])
     def Call(self, Variables):
         for statement in self.SubStatements:
             res = statement.Call(Variables)
@@ -666,6 +689,8 @@ class IfStatement(Statement):
         self.Condition = Condition
         self.OnTrue = OnTrue
         self.OnFalse = OnFalse
+    def Clone(self):
+        return IfStatement(self.Condition.Clone(), self.OnTrue.Clone(), self.OnFalse.Clone())
     def Call(self, Variables):
         if self.Condition.Call(Variables):
             if self.OnTrue:
@@ -688,6 +713,8 @@ class BreakStatement(Statement):
     Depth = 0
     def __init__(self, Depth):
         self.Depth = Depth
+    def Clone(self, Variables):
+        return self
     def Call(self, Variables):
         return BreakNotice(self.Depth)
 
@@ -697,6 +724,8 @@ class WhileStatement(Statement):
     def __init__(self, Condition, Inner):
         self.Condition = Condition
         self.Inner = Inner
+    def Clone(self):
+        return WhileStatement(self.Condition.Clone(), self.Inner.Clone())
     def Call(self, Variables):
         while self.Condition.Call(Variables):
             lres = self.Inner.Call(Variables)
@@ -712,28 +741,30 @@ class WhileStatement(Statement):
         self.Inner = self.Inner.Substitute(Variables)
 
 class FixStatement(Statement):
-    Types = None
-    Names = None
-    Values = None
-    def __init__(self, Types, Names, Values):
-        self.Types = Types
-        self.Names = Names
-        self.Values = Values
+    Vars = None
+    def __init__(self, Vars):
+        self.Vars = Vars
+    def Clone(self):
+        return FixStatement([(n[0].Clone(), n[1], n[2].Clone()) for n in self.Vars])
+    def Call(self, Variables):
+        innervals = dict()
+        for var in self.Vars:
+            ttype, name, val = var
+            innervals[name] = val
+        for name, val in innervals.items():
+            Variables[name] = val.Substitute(innervals)
     def Substitute(self, Variables):
-        for n in self.Names:
+        for n in self.Vars:
             try:
-                Variables.pop(n)
+                Variables.pop(n[1])
             except:
                 pass
-        for i in range(0, len(self.Values)):
-            self.Types[i] = self.Types[i].Substitute(Variables)
-            self.Values[i] = self.Values[i].Substitute(Variables)
+        for i in range(0, len(self.Vars)):
+            self.Vars[i][0] = self.Vars[i][0].Substitute(Variables)
+            self.Vars[i][2] = self.Vars[i][2].Substitute(Variables)
         return self
-
-def AcceptStatement(Reader, Location):
     
-    # Monads would've cleared all this code up
-    # Define
+def AcceptDefine(Reader, Location):
     sr = AcceptTightExpression(Reader, Location)
     if sr:
         ttype, nlocation = sr
@@ -750,33 +781,36 @@ def AcceptStatement(Reader, Location):
                 sr = AcceptExpression(Reader, nlocation)
                 if sr:
                     value, nlocation = sr
-                    _, nlocation = AcceptWhitespace(Reader, nlocation)
-                    sr = AcceptString(Reader, nlocation, ";")
-                    if sr:
-                        _, nlocation = sr
-                        return DefineStatement(ttype, varname, value), nlocation
+                    return (ttype, varname, value), nlocation
+                    
+def AcceptStatement(Reader, Location):
+    
+    # Monads would've cleared all this code up
+    # Define
+    sr = AcceptDefine(Reader, Location)
+    if sr:
+        define, nlocation = sr
+        _, nlocation = AcceptWhitespace(Reader, nlocation)
+        sr = AcceptString(Reader, nlocation, ";")
+        if sr:
+            _, nlocation = sr
+            return DefineStatement(define[0], define[1], define[2]), nlocation
 
-            # Static function definition
-            sr = AcceptString(Reader, nlocation, "(")
+    # Fix
+    sr = AcceptString(Reader, Location, "fix")
+    if sr:
+        _, nlocation = sr
+        _, nlocation = AcceptWhitespace(Reader, nlocation)
+        sr = AcceptString(Reader, nlocation, "{")
+        if sr:
+            _, nlocation = sr
+            _, nlocation = AcceptWhitespace(Reader, nlocation)
+            varlist, nlocation = AcceptDelimited(Reader, nlocation, AcceptSpaceCommaSpace, AcceptDefine)
+            _, nlocation = AcceptWhitespace(Reader, nlocation)
+            sr = AcceptString(Reader, nlocation, "}")
             if sr:
-                _, nlocation = sr
-                _, nlocation = AcceptWhitespace(Reader, nlocation)
-                arglist, nlocation = AcceptArgumentList(Reader, nlocation, True)
-                sr = AcceptString(Reader, nlocation, ")")
-                if sr:
-                    _, nlocation = sr
-                    _, nlocation = AcceptWhitespace(Reader, nlocation)
-                    sr = AcceptString(Reader, nlocation, "{")
-                    if sr:
-                        _, nlocation = sr
-                        _, nlocation = AcceptWhitespace(Reader, nlocation)
-                        proc, nlocation = AcceptCompoundStatement(Reader, nlocation)
-                        _, nlocation = AcceptWhitespace(Reader, nlocation)
-                        sr = AcceptString(Reader, nlocation, "}")
-                        if sr:
-                            _, Location = sr
-                            return DefineStatement(MakeLambda(arglist, ttype), varname, MakeLambda(arglist, proc)), Location
-                
+                _, Location = sr
+                return FixStatement(varlist), Location
 
     # Return
     sr = AcceptString(Reader, Location, "return")

@@ -6,7 +6,7 @@
 // excepted at and the possible errors afterward that may have lead to
 // the following string not being accepted as the symbol.
 fix {
-	type parseError = (string, int, [parseError])
+	type parseError = (string, int, list(parseError))
 }
 
 // The result of a parsing function, which can either be a list of
@@ -33,5 +33,5 @@ parser() whitespaceParser = function(string input, int start) {
 // that will take a string as input, apply the saltscript program's function
 // and gives the return value as output.
 return function(string input) {
-	return "";
+	return parseError;
 };
